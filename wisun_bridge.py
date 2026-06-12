@@ -50,10 +50,11 @@ class WiSunUdpSocket:
     def send(self, data):
         # Convert bytes to string, strip whitespace
         msg = data.decode('utf-8').strip()
+        safe_message = msg.replace(" ", "_")
         
-        # We wrap the message in quotes for the EFR32 CLI payload
-        # We do not use quotes because the EFR32 CLI parses them literally or throws errors.
-        wisun_packet_cmd = f'wisun udp_client {SERVER_IP} {SERVER_UDP_PORT} {msg}'
+        # We reuse the UDP server socket (Socket ID 1) that was opened at boot
+        # using the socket_writeto command to avoid opening/closing new client sockets.
+        wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
         send_wisun_cmd(wisun_packet_cmd, wait=0.1)
 
 wisun_sock = WiSunUdpSocket()
