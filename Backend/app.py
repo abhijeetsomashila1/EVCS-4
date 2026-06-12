@@ -161,6 +161,42 @@ def start_charging(charger_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/stop/<charger_id>', methods=['POST'])
+def stop_charging(charger_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT wisun_ip FROM chargers WHERE id=?", (charger_id,))
+    row = c.fetchone()
+    
+    if not row or not row[0]:
+        conn.close()
+        return jsonify({"error": "Charger offline or no Wi-SUN IP known"}), 400
+        
+    wisun_ip = row[0]
+    
+    # Send STOP command over UDP to the EFR32 Node
+    try:
+        if ":" in wisun_ip:
+            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            
+        # The EFR32 node will listen on port 5001
+        s.sendto(b"STOP", (wisun_ip, 5001))
+        s.close()
+        print(f"[API] Sent STOP command to {wisun_ip}:5001")
+        
+        # Update DB back to AVAILABLE
+        c.execute("UPDATE chargers SET status='AVAILABLE', progress=0.0 WHERE id=?", (charger_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+
 
 def haversine(lat1, lon1, lat2, lon2):
     # Simple distance math

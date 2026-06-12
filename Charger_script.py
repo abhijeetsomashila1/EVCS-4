@@ -39,6 +39,12 @@ import minimalmodbus
 # Global lock to prevent serial port collisions between threads
 pzem_port_lock = threading.Lock()
 shared_pzem_instance = None
+stop_flag = False
+
+def stop_charging():
+    global stop_flag
+    stop_flag = True
+
 
 # =========================================================
 # CONFIGURATION
@@ -249,7 +255,7 @@ def pzem_charging_session(target_Wh, arduino_socks):
         energy_Wh   = 0.0          # accumulated energy this session
         t_prev      = time.time()  # timestamp of last reading
 
-        while energy_Wh < target_Wh:
+        while energy_Wh < target_Wh and not stop_flag:
 
             time.sleep(READ_INTERVAL)
 
@@ -352,6 +358,8 @@ def Charger(Rfid_valid, amount, arduino_socket_q, arduino_socks):
     """
 
     try:
+        global stop_flag
+        stop_flag = False
 
         units = float(amount)
 

@@ -100,8 +100,7 @@ def serial_listener():
                     
                 elif "STOP" in line.upper():
                     print("\n[Wi-SUN Bridge] Received STOP command from Cloud!")
-                    # In a full implementation, you would add a stop flag in Charger_script
-                    pass
+                    Charger_script.stop_charging()
                 
         except Exception as e:
             print(f"[serial_listener] error: {e}")
