@@ -24,20 +24,36 @@ except Exception as e:
 
 def send_wisun_packet(message):
     """Wraps the message in the Wi-SUN UDP Client command and sends it to EFR32"""
-    # The EFR32 CLI does not understand quotes and splits strictly by spaces.
-    # We must remove spaces from our payload to avoid 'Incorrect number of arguments'
     safe_message = message.replace(" ", "_")
     
-    cmd = f'wisun udp_client {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
-    print(f"\n>>> Instructing EFR32 to transmit: '{safe_message}'")
-    ser.write((cmd + '\n').encode())
-    time.sleep(1)
+    # 1. Open the UDP Socket
+    cmd_open = f'wisun udp_client {SERVER_IP} {SERVER_UDP_PORT}'
+    ser.write((cmd_open + '\n').encode())
+    time.sleep(0.5)
     
-    # Read the response from the EFR32 board
+    sock_id = "1" # Default fallback
+    while ser.in_waiting:
+        line = ser.readline().decode(errors='ignore').strip()
+        print(f"    [EFR32] {line}")
+        if "[Opened:" in line:
+            # Parse "[Opened: 1]"
+            sock_id = line.split(":")[1].strip(" ]")
+    
+    # 2. Write to the specific Socket ID
+    cmd_write = f'wisun socket_write {sock_id} {safe_message}'
+    print(f"\n>>> Transmitting: '{safe_message}' on Socket {sock_id}")
+    ser.write((cmd_write + '\n').encode())
+    time.sleep(0.5)
+    
     while ser.in_waiting:
         line = ser.readline().decode(errors='ignore').strip()
         if line:
             print(f"    [EFR32] {line}")
+            
+    # 3. Close the socket to prevent leaks
+    cmd_close = f'wisun socket_close {sock_id}'
+    ser.write((cmd_close + '\n').encode())
+    time.sleep(0.2)
 
 def main_menu():
     print("\n=========================================")
