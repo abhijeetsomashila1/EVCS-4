@@ -12,7 +12,7 @@ WISUN_PORT = "/dev/ttyACM1"     # Change this to your EFR32 port
 BAUD_RATE = 115200
 
 # The IP of the PC/Border Router receiving these commands
-SERVER_IP = "fd00::1"           
+SERVER_IP = "fd12:3456::92fd:9fff:feee:9d54"
 SERVER_UDP_PORT = "5000"
 
 try:
