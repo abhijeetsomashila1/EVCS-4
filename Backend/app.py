@@ -203,4 +203,6 @@ def get_nearby(charger_id):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    # We changed the Flask API port to 5005 to avoid TCP conflicts on the Border Router.
+    # The UDP Wi-SUN listener still safely uses UDP port 5000!
+    app.run(host='0.0.0.0', port=5005, debug=True, use_reloader=False)
