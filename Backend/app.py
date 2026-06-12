@@ -78,6 +78,18 @@ def udp_listener():
                     conn.close()
                 except Exception as e:
                     print(f"DB Error: {e}")
+            elif "HELLO" in msg:
+                try:
+                    charger_id = msg.split(":")[1]
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    # Learn the IP address on boot
+                    c.execute("UPDATE chargers SET wisun_ip=?, status='AVAILABLE' WHERE id=?", (sender_ip, charger_id))
+                    conn.commit()
+                    conn.close()
+                    print(f"[UDP_RECV] Successfully registered dynamic IP for {charger_id}: {sender_ip}")
+                except Exception as e:
+                    print(f"DB Error: {e}")
                     
         except Exception as e:
             print(f"UDP Listener error: {e}")
