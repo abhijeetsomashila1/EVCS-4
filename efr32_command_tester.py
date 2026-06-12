@@ -47,23 +47,29 @@ def main_menu():
     print("2. Send 'Stop Scan'")
     print("3. Send 'Relay ON'")
     print("4. Send 'Relay OFF'")
-    print("5. Send Custom Command")
+    print("5. Send RAW CLI Command (e.g., 'help')")
     print("6. Exit")
     print("=========================================")
     
     choice = input("Select an option (1-6): ")
     
     if choice == '1':
-        send_wisun_packet("Start Scan")
+        send_wisun_packet("Start_Scan")
     elif choice == '2':
-        send_wisun_packet("Stop Scan")
+        send_wisun_packet("Stop_Scan")
     elif choice == '3':
-        send_wisun_packet("Relay ON")
+        send_wisun_packet("Relay_ON")
     elif choice == '4':
-        send_wisun_packet("Relay OFF")
+        send_wisun_packet("Relay_OFF")
     elif choice == '5':
-        custom = input("Enter custom string: ")
-        send_wisun_packet(custom)
+        custom = input("Enter RAW command: ")
+        print(f"\n>>> Sending RAW: {custom}")
+        ser.write((custom + '\n').encode())
+        time.sleep(1)
+        while ser.in_waiting:
+            line = ser.readline().decode(errors='ignore').strip()
+            if line:
+                print(f"    [EFR32] {line}")
     elif choice == '6':
         print("Exiting...")
         ser.close()
