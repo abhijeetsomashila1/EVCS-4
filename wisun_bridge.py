@@ -50,12 +50,37 @@ class WiSunUdpSocket:
     def send(self, data):
         # Convert bytes to string, strip whitespace
         msg = data.decode('utf-8').strip()
-        safe_message = msg.replace(" ", "_")
         
-        # We reuse the UDP server socket (Socket ID 1) that was opened at boot
-        # using the socket_writeto command to avoid opening/closing new client sockets.
-        wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
-        send_wisun_cmd(wisun_packet_cmd, wait=0.1)
+        try:
+            import pi_ui
+            if msg.startswith("METRICS:"):
+                pi_ui.update_metrics(msg)
+                
+                # Extract just the progress for Wi-SUN (to save bandwidth)
+                parts = msg.split(":")
+                if len(parts) > 1:
+                    progress = parts[1].split("|")[0]
+                    safe_message = f"PROGRESS:{progress}"
+                    wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
+                    send_wisun_cmd(wisun_packet_cmd, wait=0.1)
+                    
+            elif msg.startswith("CHARGING") or msg.startswith("AVAILABLE"):
+                pi_ui.update_status(msg)
+                safe_message = msg.replace(" ", "_")
+                wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
+                send_wisun_cmd(wisun_packet_cmd, wait=0.1)
+                
+            else:
+                safe_message = msg.replace(" ", "_")
+                wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
+                send_wisun_cmd(wisun_packet_cmd, wait=0.1)
+                
+        except Exception as e:
+            print(f"UI integration error: {e}")
+            # Fallback
+            safe_message = msg.replace(" ", "_")
+            wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
+            send_wisun_cmd(wisun_packet_cmd, wait=0.1)
 
 wisun_sock = WiSunUdpSocket()
 
@@ -131,10 +156,18 @@ if __name__ == "__main__":
     
     print("\n[Wi-SUN Bridge] Ready and waiting for commands!")
     
-    # Keep main thread alive
+    # Launch the Local Tkinter Dashboard!
+    # This will block and keep the main thread alive.
+    print("\n[Wi-SUN Bridge] Launching Local Display UI...")
     try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\nExiting...")
-        ser.close()
+        import pi_ui
+        pi_ui.start_ui()
+    except Exception as e:
+        print(f"Failed to start UI: {e}")
+        # Fallback to standard keep-alive
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            ser.close()

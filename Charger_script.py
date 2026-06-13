@@ -283,7 +283,8 @@ def pzem_charging_session(target_Wh, arduino_socks):
 
             # ---- send to UI ----
             try:
-                msg = f"PROGRESS:{progress_pct:.1f}\n"
+                # Send full metrics so the local UI can parse it
+                msg = f"METRICS:{progress_pct:.1f}|{readings['voltage_V']:.1f}|{readings['current_A']:.2f}|{readings['power_W']:.1f}|{energy_Wh:.2f}\n"
                 arduino_socks.send(msg.encode())
             except Exception:
                 pass
