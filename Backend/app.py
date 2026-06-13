@@ -1,5 +1,5 @@
 import os
-import sqlite3
+import mysql.connector
 import threading
 import socket
 import math
@@ -9,36 +9,69 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-DB_PATH = 'chargers.db'
 UDP_LISTEN_PORT = 5000
+
+# MySQL Config
+MYSQL_HOST = 'localhost'
+MYSQL_USER = 'root'
+MYSQL_PASSWORD = 'Bujji@2709'
+MYSQL_DB = 'evcharger'
 
 # =========================================================
 # DATABASE SETUP
 # =========================================================
 
+def get_db_connection():
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DB
+    )
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    # Connect without database first to create it
+    conn = mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD
+    )
+    c = conn.cursor()
+    c.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB}")
+    conn.commit()
+    conn.close()
+    
+    # Connect to the database and create tables
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS chargers (
-            id TEXT PRIMARY KEY,
-            status TEXT,
-            lat REAL,
-            lon REAL,
-            wisun_ip TEXT,
-            progress REAL
+            id VARCHAR(50) PRIMARY KEY,
+            status VARCHAR(50),
+            lat FLOAT,
+            lon FLOAT,
+            wisun_ip VARCHAR(100),
+            progress FLOAT
         )
     ''')
     
     # Insert some dummy chargers for the prototype
-    c.execute("INSERT OR IGNORE INTO chargers VALUES ('EV001', 'AVAILABLE', 17.4447, 78.3484, '', 0.0)")
-    c.execute("INSERT OR IGNORE INTO chargers VALUES ('EV002', 'AVAILABLE', 17.4450, 78.3489, '', 0.0)")
-    c.execute("INSERT OR IGNORE INTO chargers VALUES ('EV003', 'AVAILABLE', 17.4430, 78.3470, '', 0.0)")
-    
+    try:
+        c.execute("INSERT IGNORE INTO chargers VALUES ('EV001', 'AVAILABLE', 17.4447, 78.3484, '', 0.0)")
+        c.execute("INSERT IGNORE INTO chargers VALUES ('EV002', 'AVAILABLE', 17.4450, 78.3489, '', 0.0)")
+        c.execute("INSERT IGNORE INTO chargers VALUES ('EV003', 'AVAILABLE', 17.4430, 78.3470, '', 0.0)")
+    except Exception as e:
+        print("Insert Error:", e)
+        
     conn.commit()
     conn.close()
 
-init_db()
+try:
+    init_db()
+    print("MySQL Database Initialized!")
+except Exception as e:
+    print(f"Failed to connect to MySQL: {e}")
+    print("Make sure your MySQL server (e.g. XAMPP) is running!")
 
 # =========================================================
 # UDP LISTENER (FROM BORDER ROUTER)
@@ -46,13 +79,11 @@ init_db()
 
 def udp_listener():
     """Listens for incoming Wi-SUN UDP packets on port 5000"""
-    # Use '::' to listen on all available IPv6 addresses
     try:
         sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         sock.bind(('::', UDP_LISTEN_PORT))
         print(f"[UDP] Listening for Wi-SUN packets on IPv6 port {UDP_LISTEN_PORT}")
     except Exception as e:
-        # Fallback to IPv4 if IPv6 fails
         print(f"[UDP] IPv6 bind failed ({e}), falling back to IPv4 0.0.0.0")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(('0.0.0.0', UDP_LISTEN_PORT))
@@ -65,15 +96,12 @@ def udp_listener():
             
             print(f"[UDP_RECV] from {sender_ip}: {msg}")
             
-            # Format expected: "EV001|PROGRESS:45.0"
-            # Since the prototype sends "PROGRESS:xx", we will assume EV001 for now
             if "PROGRESS" in msg:
                 try:
                     pct = float(msg.split(":")[1])
-                    conn = sqlite3.connect(DB_PATH)
+                    conn = get_db_connection()
                     c = conn.cursor()
-                    # Automatically learn the Wi-SUN IP of the node!
-                    c.execute("UPDATE chargers SET progress=?, wisun_ip=?, status='CHARGING' WHERE id='EV001'", (pct, sender_ip))
+                    c.execute("UPDATE chargers SET progress=%s, wisun_ip=%s, status='CHARGING' WHERE id='EV001'", (pct, sender_ip))
                     conn.commit()
                     conn.close()
                 except Exception as e:
@@ -81,10 +109,9 @@ def udp_listener():
             elif "HELLO" in msg:
                 try:
                     charger_id = msg.split(":")[1]
-                    conn = sqlite3.connect(DB_PATH)
+                    conn = get_db_connection()
                     c = conn.cursor()
-                    # Learn the IP address on boot
-                    c.execute("UPDATE chargers SET wisun_ip=?, status='AVAILABLE' WHERE id=?", (sender_ip, charger_id))
+                    c.execute("UPDATE chargers SET wisun_ip=%s, status='AVAILABLE' WHERE id=%s", (sender_ip, charger_id))
                     conn.commit()
                     conn.close()
                     print(f"[UDP_RECV] Successfully registered dynamic IP for {charger_id}: {sender_ip}")
@@ -93,7 +120,6 @@ def udp_listener():
                     
         except Exception as e:
             print(f"UDP Listener error: {e}")
-
 
 # Start listener thread
 t = threading.Thread(target=udp_listener, daemon=True)
@@ -105,54 +131,53 @@ t.start()
 
 @app.route('/api/status/<charger_id>')
 def get_status(charger_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM chargers WHERE id=?", (charger_id,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row:
-        return jsonify({"error": "Charger not found"}), 404
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT * FROM chargers WHERE id=%s", (charger_id,))
+        row = c.fetchone()
+        conn.close()
         
-    return jsonify({
-        "id": row[0],
-        "status": row[1],
-        "lat": row[2],
-        "lon": row[3],
-        "wisun_ip": row[4],
-        "progress": row[5]
-    })
-
+        if not row:
+            return jsonify({"error": "Charger not found"}), 404
+            
+        return jsonify({
+            "id": row[0],
+            "status": row[1],
+            "lat": row[2],
+            "lon": row[3],
+            "wisun_ip": row[4],
+            "progress": row[5]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/start/<charger_id>', methods=['POST'])
 def start_charging(charger_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT wisun_ip FROM chargers WHERE id=?", (charger_id,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row or not row[0]:
-        return jsonify({"error": "Charger offline or no Wi-SUN IP known"}), 400
-        
-    wisun_ip = row[0]
-    
-    # Send START command over UDP to the EFR32 Node
     try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT wisun_ip FROM chargers WHERE id=%s", (charger_id,))
+        row = c.fetchone()
+        
+        if not row or not row[0]:
+            conn.close()
+            return jsonify({"error": "Charger offline or no Wi-SUN IP known"}), 400
+            
+        wisun_ip = row[0]
+        
+        # Send START command over UDP to the EFR32 Node
         if ":" in wisun_ip:
             s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         else:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
-        # The EFR32 node will listen on port 5001
         s.sendto(b"START", (wisun_ip, 5001))
         s.close()
         print(f"[API] Sent START command to {wisun_ip}:5001")
         
         # Update DB
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("UPDATE chargers SET status='CHARGING', progress=0.0 WHERE id=?", (charger_id,))
+        c.execute("UPDATE chargers SET status='CHARGING', progress=0.0 WHERE id=%s", (charger_id,))
         conn.commit()
         conn.close()
         
@@ -163,43 +188,39 @@ def start_charging(charger_id):
 
 @app.route('/api/stop/<charger_id>', methods=['POST'])
 def stop_charging(charger_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT wisun_ip FROM chargers WHERE id=?", (charger_id,))
-    row = c.fetchone()
-    
-    if not row or not row[0]:
-        conn.close()
-        return jsonify({"error": "Charger offline or no Wi-SUN IP known"}), 400
-        
-    wisun_ip = row[0]
-    
-    # Send STOP command over UDP to the EFR32 Node
     try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT wisun_ip FROM chargers WHERE id=%s", (charger_id,))
+        row = c.fetchone()
+        
+        if not row or not row[0]:
+            conn.close()
+            return jsonify({"error": "Charger offline or no Wi-SUN IP known"}), 400
+            
+        wisun_ip = row[0]
+        
+        # Send STOP command over UDP to the EFR32 Node
         if ":" in wisun_ip:
             s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         else:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
-        # The EFR32 node will listen on port 5001
         s.sendto(b"STOP", (wisun_ip, 5001))
         s.close()
         print(f"[API] Sent STOP command to {wisun_ip}:5001")
         
         # Update DB back to AVAILABLE
-        c.execute("UPDATE chargers SET status='AVAILABLE', progress=0.0 WHERE id=?", (charger_id,))
+        c.execute("UPDATE chargers SET status='AVAILABLE', progress=0.0 WHERE id=%s", (charger_id,))
         conn.commit()
         conn.close()
         
         return jsonify({"success": True})
         
     except Exception as e:
-        conn.close()
         return jsonify({"error": str(e)}), 500
 
-
 def haversine(lat1, lon1, lat2, lon2):
-    # Simple distance math
     R = 6371 # km
     dLat = math.radians(lat2 - lat1)
     dLon = math.radians(lon2 - lon1)
@@ -210,33 +231,33 @@ def haversine(lat1, lon1, lat2, lon2):
 
 @app.route('/api/nearby/<charger_id>')
 def get_nearby(charger_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # Get target location
-    c.execute("SELECT lat, lon FROM chargers WHERE id=?", (charger_id,))
-    target = c.fetchone()
-    
-    if not target:
-        return jsonify({"error": "Charger not found"}), 404
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
         
-    # Get all available chargers
-    c.execute("SELECT id, lat, lon FROM chargers WHERE status='AVAILABLE' AND id!=?", (charger_id,))
-    available = c.fetchall()
-    conn.close()
-    
-    results = []
-    for row in available:
-        dist_km = haversine(target[0], target[1], row[1], row[2])
-        results.append({
-            "id": row[0],
-            "distance_m": round(dist_km * 1000)
-        })
+        c.execute("SELECT lat, lon FROM chargers WHERE id=%s", (charger_id,))
+        target = c.fetchone()
         
-    # Sort by distance
-    results.sort(key=lambda x: x["distance_m"])
-    return jsonify(results[:2]) # return nearest 2
-
+        if not target:
+            conn.close()
+            return jsonify({"error": "Charger not found"}), 404
+            
+        c.execute("SELECT id, lat, lon FROM chargers WHERE status='AVAILABLE' AND id!=%s", (charger_id,))
+        available = c.fetchall()
+        conn.close()
+        
+        results = []
+        for row in available:
+            dist_km = haversine(target[0], target[1], row[1], row[2])
+            results.append({
+                "id": row[0],
+                "distance_m": round(dist_km * 1000)
+            })
+            
+        results.sort(key=lambda x: x["distance_m"])
+        return jsonify(results[:2])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # We changed the Flask API port to 5005 to avoid TCP conflicts on the Border Router.
