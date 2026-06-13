@@ -14,7 +14,7 @@ WISUN_PORT = "/dev/ttyACM1"     # Change if needed
 BAUD_RATE = 115200
 
 # The IPv6 address of your PC (Border Router Backend)
-SERVER_IP = "fe80::b6e3:f9ff:fea6:53a"
+SERVER_IP = "fd12:3456::92fd:9fff:feee:9d54"
 SERVER_UDP_PORT = "5000"
 
 # The port this node will listen on for commands from the backend
