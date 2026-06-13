@@ -39,7 +39,6 @@ def init_db():
     conn.close()
 
 init_db()
-print("SQLite Database Initialized!")
 
 # =========================================================
 # UDP LISTENER (FROM BORDER ROUTER)
@@ -47,11 +46,13 @@ print("SQLite Database Initialized!")
 
 def udp_listener():
     """Listens for incoming Wi-SUN UDP packets on port 5000"""
+    # Use '::' to listen on all available IPv6 addresses
     try:
         sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         sock.bind(('::', UDP_LISTEN_PORT))
         print(f"[UDP] Listening for Wi-SUN packets on IPv6 port {UDP_LISTEN_PORT}")
     except Exception as e:
+        # Fallback to IPv4 if IPv6 fails
         print(f"[UDP] IPv6 bind failed ({e}), falling back to IPv4 0.0.0.0")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(('0.0.0.0', UDP_LISTEN_PORT))
@@ -64,12 +65,14 @@ def udp_listener():
             
             print(f"[UDP_RECV] from {sender_ip}: {msg}")
             
-            # Format expected: "PROGRESS:45.0"
+            # Format expected: "EV001|PROGRESS:45.0"
+            # Since the prototype sends "PROGRESS:xx", we will assume EV001 for now
             if "PROGRESS" in msg:
                 try:
                     pct = float(msg.split(":")[1])
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
+                    # Automatically learn the Wi-SUN IP of the node!
                     c.execute("UPDATE chargers SET progress=?, wisun_ip=?, status='CHARGING' WHERE id='EV001'", (pct, sender_ip))
                     conn.commit()
                     conn.close()
@@ -80,6 +83,7 @@ def udp_listener():
                     charger_id = msg.split(":")[1]
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
+                    # Learn the IP address on boot
                     c.execute("UPDATE chargers SET wisun_ip=?, status='AVAILABLE' WHERE id=?", (sender_ip, charger_id))
                     conn.commit()
                     conn.close()
@@ -89,6 +93,7 @@ def udp_listener():
                     
         except Exception as e:
             print(f"UDP Listener error: {e}")
+
 
 # Start listener thread
 t = threading.Thread(target=udp_listener, daemon=True)
@@ -139,6 +144,7 @@ def start_charging(charger_id):
         else:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
+        # The EFR32 node will listen on port 5001
         s.sendto(b"START", (wisun_ip, 5001))
         s.close()
         print(f"[API] Sent START command to {wisun_ip}:5001")
@@ -175,6 +181,7 @@ def stop_charging(charger_id):
         else:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
+        # The EFR32 node will listen on port 5001
         s.sendto(b"STOP", (wisun_ip, 5001))
         s.close()
         print(f"[API] Sent STOP command to {wisun_ip}:5001")
@@ -192,6 +199,7 @@ def stop_charging(charger_id):
 
 
 def haversine(lat1, lon1, lat2, lon2):
+    # Simple distance math
     R = 6371 # km
     dLat = math.radians(lat2 - lat1)
     dLon = math.radians(lon2 - lon1)
@@ -205,12 +213,14 @@ def get_nearby(charger_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
+    # Get target location
     c.execute("SELECT lat, lon FROM chargers WHERE id=?", (charger_id,))
     target = c.fetchone()
     
     if not target:
         return jsonify({"error": "Charger not found"}), 404
         
+    # Get all available chargers
     c.execute("SELECT id, lat, lon FROM chargers WHERE status='AVAILABLE' AND id!=?", (charger_id,))
     available = c.fetchall()
     conn.close()
@@ -223,10 +233,12 @@ def get_nearby(charger_id):
             "distance_m": round(dist_km * 1000)
         })
         
+    # Sort by distance
     results.sort(key=lambda x: x["distance_m"])
-    return jsonify(results[:2])
+    return jsonify(results[:2]) # return nearest 2
 
 
 if __name__ == '__main__':
     # We changed the Flask API port to 5005 to avoid TCP conflicts on the Border Router.
+    # The UDP Wi-SUN listener still safely uses UDP port 5000!
     app.run(host='0.0.0.0', port=5005, debug=True, use_reloader=False)
