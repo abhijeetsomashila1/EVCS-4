@@ -149,19 +149,10 @@ if __name__ == "__main__":
     # 3. Open a UDP server to listen for commands from the backend
     send_wisun_cmd(f"wisun udp_server {NODE_LISTEN_PORT}", wait=2)
     
-    # 4. Announce presence to the Backend periodically
-    # This ensures that even if the network takes 60 seconds to join, 
-    # or if the Border Router reboots, it will eventually learn our IP!
-    print("\n[Wi-SUN Bridge] Starting robust presence announcer...")
-    def announce_presence():
-        while True:
-            hello_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} HELLO:EV001'
-            send_wisun_cmd(hello_cmd, wait=1)
-            time.sleep(15)
-            
-    announcer_thread = threading.Thread(target=announce_presence)
-    announcer_thread.daemon = True
-    announcer_thread.start()
+    # 4. Announce presence to the Backend so it can learn our dynamic IPv6 address!
+    print("\n[Wi-SUN Bridge] Announcing presence to Backend...")
+    hello_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} HELLO:EV001'
+    send_wisun_cmd(hello_cmd, wait=1)
     
     print("\n[Wi-SUN Bridge] Ready and waiting for commands!")
     
