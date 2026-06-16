@@ -137,17 +137,34 @@ def start_charging(charger_id):
         
     wisun_ip = row[0]
     
-    # Send START command over UDP to the EFR32 Node
+    # Send START command over Serial to the EFR32 Node (Bypass Linux routing!)
     try:
-        if ":" in wisun_ip:
-            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-        else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            
-        # The EFR32 node will listen on port 5001
-        s.sendto(b"START", (wisun_ip, 5001))
-        s.close()
-        print(f"[API] Sent START command to {wisun_ip}:5001")
+        import serial
+        import time
+        ser = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
+        
+        # 1. Open UDP Client socket on EFR32
+        cmd_open = f'wisun udp_client {wisun_ip} 5001\n'
+        ser.write(cmd_open.encode())
+        time.sleep(0.5)
+        
+        sock_id = "1"
+        while ser.in_waiting:
+            line = ser.readline().decode(errors='ignore').strip()
+            if "[Opened:" in line:
+                sock_id = line.split(":")[1].strip(" ]")
+                
+        # 2. Send START command
+        cmd_write = f'wisun socket_write {sock_id} START\n'
+        ser.write(cmd_write.encode())
+        time.sleep(0.5)
+        
+        # 3. Close the socket
+        cmd_close = f'wisun socket_close {sock_id}\n'
+        ser.write(cmd_close.encode())
+        time.sleep(0.2)
+        ser.close()
+        print(f"[API] Sent START command to {wisun_ip}:5001 via Serial!")
         
         # Update DB
         conn = sqlite3.connect(DB_PATH)
@@ -174,17 +191,34 @@ def stop_charging(charger_id):
         
     wisun_ip = row[0]
     
-    # Send STOP command over UDP to the EFR32 Node
+    # Send STOP command over Serial to the EFR32 Node (Bypass Linux routing!)
     try:
-        if ":" in wisun_ip:
-            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-        else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            
-        # The EFR32 node will listen on port 5001
-        s.sendto(b"STOP", (wisun_ip, 5001))
-        s.close()
-        print(f"[API] Sent STOP command to {wisun_ip}:5001")
+        import serial
+        import time
+        ser = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
+        
+        # 1. Open UDP Client socket on EFR32
+        cmd_open = f'wisun udp_client {wisun_ip} 5001\n'
+        ser.write(cmd_open.encode())
+        time.sleep(0.5)
+        
+        sock_id = "1"
+        while ser.in_waiting:
+            line = ser.readline().decode(errors='ignore').strip()
+            if "[Opened:" in line:
+                sock_id = line.split(":")[1].strip(" ]")
+                
+        # 2. Send STOP command
+        cmd_write = f'wisun socket_write {sock_id} STOP\n'
+        ser.write(cmd_write.encode())
+        time.sleep(0.5)
+        
+        # 3. Close the socket
+        cmd_close = f'wisun socket_close {sock_id}\n'
+        ser.write(cmd_close.encode())
+        time.sleep(0.2)
+        ser.close()
+        print(f"[API] Sent STOP command to {wisun_ip}:5001 via Serial!")
         
         # Update DB back to AVAILABLE
         c.execute("UPDATE chargers SET status='AVAILABLE', progress=0.0 WHERE id=?", (charger_id,))
