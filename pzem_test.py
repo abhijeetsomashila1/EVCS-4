@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import queue
 import threading
 import time
@@ -27,15 +26,17 @@ SERIAL_PORT = "/dev/ttyUSB0"
 # Default Modbus slave address for many PZEM-004T V3.0 modules.
 SLAVE_ADDRESS = 1
 
-POLL_INTERVAL_SECONDS = 2
+POLL_INTERVAL_SECONDS = 2.0
 
 # Relay control uses BCM GPIO numbering.
 # GPIO17 is physical pin 11 on the Raspberry Pi header.
 RELAY_PIN_BCM = 17
 
-# Set this to False if your relay module is active-low.
-# Many relay boards turn ON when the GPIO output is LOW.
+# SSR-25DA input turns ON when GPIO17 is HIGH.
 RELAY_ACTIVE_HIGH = True
+
+# Dummy capacity used only for prototype testing.
+MOCK_BATTERY_CAPACITY_WH = 100.0
 
 
 def create_pzem():
@@ -51,10 +52,11 @@ def create_pzem():
 
 
 def read_pzem_values(instrument):
-    # PZEM-004T V3.0 input registers:
-    # 0x0000 voltage, scale 0.1 V
-    # 0x0001-0x0002 current, scale 0.001 A
-    # 0x0003-0x0004 active power, scale 0.1 W
+    """Return voltage, current, active_power.
+
+    Replace this function with your existing PZEM-004T read function if needed.
+    The rest of the loop expects values in volts, amps, and watts.
+    """
     registers = instrument.read_registers(
         registeraddress=0x0000,
         number_of_registers=5,
@@ -102,22 +104,25 @@ class RelayController:
         GPIO.output(self.pin_bcm, self._inactive_level())
         self.is_on = False
 
-    def toggle(self):
-        if self.is_on:
-            self.turn_off()
-        else:
-            self.turn_on()
-
     def cleanup(self):
         self.turn_off()
         GPIO.cleanup(self.pin_bcm)
 
 
-def keyboard_listener(command_queue):
+print_lock = threading.Lock()
+
+
+def safe_print(message):
+    with print_lock:
+        print(message, flush=True)
+
+
+def command_listener(command_queue):
     while True:
         try:
-            command = input().strip().lower()
+            command = input("Command [on/off/q]: ").strip().lower()
         except EOFError:
+            command_queue.put("q")
             break
 
         if command:
@@ -127,123 +132,125 @@ def keyboard_listener(command_queue):
             break
 
 
-def process_relay_commands(relay, command_queue):
-    message = None
+def charging_telemetry_loop(pzem, relay, stop_event):
+    energy_consumed_wh = 0.0
+    last_sample_time = time.monotonic()
 
-    while True:
+    safe_print("Charging started: relay GPIO17 HIGH")
+
+    while not stop_event.is_set():
         try:
-            command = command_queue.get_nowait()
-        except queue.Empty:
-            break
+            voltage, current, active_power = read_pzem_values(pzem)
 
-        if command in ("t", "toggle"):
-            relay.toggle()
-            message = "Relay toggled"
-        elif command == "on":
-            relay.turn_on()
-            message = "Relay turned ON"
-        elif command == "off":
-            relay.turn_off()
-            message = "Relay turned OFF"
-        elif command in ("q", "quit", "exit"):
-            raise KeyboardInterrupt
-        else:
-            message = f"Unknown command: {command}"
+            now = time.monotonic()
+            elapsed_hours = (now - last_sample_time) / 3600.0
+            last_sample_time = now
 
-    return message
+            energy_consumed_wh += max(active_power, 0.0) * elapsed_hours
+            charge_percent = min(
+                (energy_consumed_wh / MOCK_BATTERY_CAPACITY_WH) * 100.0,
+                100.0,
+            )
 
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            safe_print(
+                f"[{timestamp}] "
+                f"V={voltage:7.2f} V | "
+                f"I={current:7.3f} A | "
+                f"P={active_power:8.2f} W | "
+                f"Energy={energy_consumed_wh:7.3f} Wh | "
+                f"Charge={charge_percent:6.2f}%"
+            )
 
-def print_dashboard(
-    relay,
-    voltage=None,
-    current=None,
-    active_power=None,
-    error=None,
-    command_message=None,
-):
-    os.system("clear")
+            if charge_percent >= 100.0:
+                safe_print("Simulated charge reached 100%. Turning relay OFF.")
+                relay.turn_off()
+                stop_event.set()
+                break
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    relay_state = "ON" if relay.is_on else "OFF"
+        except (
+            minimalmodbus.NoResponseError,
+            minimalmodbus.InvalidResponseError,
+            minimalmodbus.IllegalRequestError,
+            serial.SerialException,
+            OSError,
+        ) as exc:
+            last_sample_time = time.monotonic()
+            safe_print(f"Read Error/Timeout: {exc}")
 
-    print("+--------------------------------------+")
-    print("|        PZEM-004T V3.0 Monitor        |")
-    print("+--------------------------------------+")
-    print(f"| Timestamp    : {timestamp:<20} |")
-    print(f"| Relay GPIO17 : {relay_state:<20} |")
+        except Exception as exc:
+            last_sample_time = time.monotonic()
+            safe_print(f"Unexpected telemetry error: {exc}")
 
-    if error:
-        print("| Status       : Read Error/Timeout    |")
-        print("+--------------------------------------+")
-        print(f"Warning: {error}")
-    else:
-        print("| Status       : OK                    |")
-        print(f"| Voltage      : {voltage:>10.2f} V           |")
-        print(f"| Current      : {current:>10.3f} A           |")
-        print(f"| Active Power : {active_power:>10.2f} W           |")
-        print("+--------------------------------------+")
+        stop_event.wait(POLL_INTERVAL_SECONDS)
 
-    print("Commands: t/toggle, on, off, q/quit")
-    if command_message:
-        print(f"Last command: {command_message}")
+    relay.turn_off()
+    safe_print("Charging stopped: relay GPIO17 LOW")
 
 
 def main():
     pzem = create_pzem()
     relay = RelayController(RELAY_PIN_BCM, RELAY_ACTIVE_HIGH)
+
     command_queue = queue.Queue()
-    command_thread = threading.Thread(
-        target=keyboard_listener,
+    telemetry_stop_event = threading.Event()
+    telemetry_thread = None
+
+    listener_thread = threading.Thread(
+        target=command_listener,
         args=(command_queue,),
         daemon=True,
     )
-    command_thread.start()
-    last_command_message = None
+    listener_thread.start()
+
+    safe_print("Ready. Type 'on' to start charging, 'off' to stop, or 'q' to exit.")
 
     try:
         while True:
-            try:
-                last_command_message = (
-                    process_relay_commands(relay, command_queue)
-                    or last_command_message
-                )
-                voltage, current, active_power = read_pzem_values(pzem)
-                print_dashboard(
-                    relay,
-                    voltage,
-                    current,
-                    active_power,
-                    command_message=last_command_message,
-                )
+            command = command_queue.get()
 
-            except (
-                minimalmodbus.NoResponseError,
-                minimalmodbus.InvalidResponseError,
-                minimalmodbus.IllegalRequestError,
-                serial.SerialException,
-                OSError,
-            ) as exc:
-                print_dashboard(
-                    relay,
-                    error=exc,
-                    command_message=last_command_message,
-                )
+            if command == "on":
+                if telemetry_thread and telemetry_thread.is_alive():
+                    safe_print("Charging is already running.")
+                    continue
 
-            except KeyboardInterrupt:
-                print("\nStopped by user.")
+                telemetry_stop_event.clear()
+                relay.turn_on()
+                telemetry_thread = threading.Thread(
+                    target=charging_telemetry_loop,
+                    args=(pzem, relay, telemetry_stop_event),
+                    daemon=True,
+                )
+                telemetry_thread.start()
+
+            elif command == "off":
+                if telemetry_thread and telemetry_thread.is_alive():
+                    telemetry_stop_event.set()
+                    relay.turn_off()
+                    telemetry_thread.join(timeout=3.0)
+                else:
+                    relay.turn_off()
+                    safe_print("Charging is already stopped.")
+
+            elif command in ("q", "quit", "exit"):
+                safe_print("Exiting...")
                 break
 
-            except Exception as exc:
-                print_dashboard(
-                    relay,
-                    error=f"Unexpected error: {exc}",
-                    command_message=last_command_message,
-                )
+            else:
+                safe_print("Unknown command. Use: on, off, q")
 
-            time.sleep(POLL_INTERVAL_SECONDS)
+    except KeyboardInterrupt:
+        safe_print("\nKeyboardInterrupt received. Shutting down safely.")
 
     finally:
+        telemetry_stop_event.set()
+        relay.turn_off()
+
+        if telemetry_thread and telemetry_thread.is_alive():
+            telemetry_thread.join(timeout=3.0)
+
         relay.cleanup()
+        safe_print("Relay OFF and GPIO cleaned up.")
 
 
 if __name__ == "__main__":
