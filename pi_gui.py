@@ -142,6 +142,45 @@ class PiChargerDashboard(tk.Tk):
         self.watts_var.set("0.0 W")
         self.energy_var.set("0.0 Wh")
 
+# =========================================================
+# CLI LISTENER THREAD
+# =========================================================
+def cli_listener(app):
+    print("\n" + "="*50)
+    print("  Raspberry Pi Charger (Hybrid GUI + CLI Test)")
+    print("="*50)
+    print("Commands you can type here:")
+    print("  start  - Turn the relay ON")
+    print("  stop   - Turn the relay OFF")
+    print("  exit   - Quit the program")
+    print("="*50 + "\n")
+    
+    while True:
+        try:
+            cmd = input().strip().lower()
+            if cmd == "start":
+                print("\n[CLI] Command accepted: starting charger...")
+                app.start_charge()
+            elif cmd == "stop":
+                print("\n[CLI] Command accepted: stopping charger...")
+                app.stop_charge()
+            elif cmd == "exit" or cmd == "quit":
+                print("\nExiting...")
+                app.stop_charge()
+                import os
+                os._exit(0) # Force exit both threads
+            elif cmd != "":
+                print(f"Unknown command: '{cmd}'. Try 'start' or 'stop'.")
+        except (KeyboardInterrupt, EOFError):
+            app.stop_charge()
+            import os
+            os._exit(0)
+
 if __name__ == "__main__":
     app = PiChargerDashboard()
+    
+    # Run the CLI listener in the background
+    t = threading.Thread(target=cli_listener, args=(app,), daemon=True)
+    t.start()
+    
     app.mainloop()
