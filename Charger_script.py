@@ -107,24 +107,34 @@ class PZEM:
     def readAll(self):
         """Read all four measurements. Returns dict."""
         with pzem_port_lock:
-            # Matches exactly how pzem_test.py reads
-            voltage = self.instrument.read_register(0, 1, functioncode=4)
-            current = self.instrument.read_register(1, 2, functioncode=4)
-            power   = self.instrument.read_register(3, 1, functioncode=4)
-            
-            # Energy (Wh) is stored in two registers (5 and 6)
             try:
-                energy_regs = self.instrument.read_registers(5, 2, functioncode=4)
-                energy_Wh = energy_regs[0] + (energy_regs[1] << 16)
-            except Exception:
-                # Fallback to single register if dual-register read fails
-                energy_Wh = self.instrument.read_register(5, 0, functioncode=4)
+                # Voltage (Register 0, 16-bit, 1 decimal = 0.1V)
+                voltage = self.instrument.read_register(0, 1, functioncode=4)
+                
+                # Current (Registers 1 & 2, 32-bit, scale = 0.001A)
+                i_regs = self.instrument.read_registers(1, 2, functioncode=4)
+                current = (i_regs[0] + (i_regs[1] << 16)) / 1000.0
+                
+                # Power (Registers 3 & 4, 32-bit, scale = 0.1W)
+                p_regs = self.instrument.read_registers(3, 2, functioncode=4)
+                power = (p_regs[0] + (p_regs[1] << 16)) / 10.0
+                
+                # Energy (Registers 5 & 6, 32-bit, scale = 1Wh)
+                e_regs = self.instrument.read_registers(5, 2, functioncode=4)
+                energy_Wh = float(e_regs[0] + (e_regs[1] << 16))
+                
+            except Exception as e:
+                # Fallback for older firmwares that might not support 32-bit multi-reads
+                voltage = self.instrument.read_register(0, 1, functioncode=4)
+                current = self.instrument.read_register(1, 3, functioncode=4) # 3 decimals (0.001A)
+                power   = self.instrument.read_register(3, 1, functioncode=4) # 1 decimal (0.1W)
+                energy_Wh = float(self.instrument.read_register(5, 0, functioncode=4))
 
             return {
                 "voltage_V" : voltage,
                 "current_A" : current,
                 "power_W"   : power,
-                "energy_Wh" : float(energy_Wh),
+                "energy_Wh" : energy_Wh,
             }
 
     def close(self):
