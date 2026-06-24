@@ -21,16 +21,15 @@ class GuiSocket:
 
     def send(self, data):
         msg = data.decode('utf-8').strip()
-        print(f"[Internal] {msg}")
         
         # We must use 'after' to safely update Tkinter from a background thread
         if "METRICS:" in msg:
             try:
                 parts = msg.split(":")[1].split("|")
                 if len(parts) >= 5:
-                    self.gui.after(0, self.gui.update_metrics, 
-                        float(parts[0]), float(parts[1]), float(parts[2]), 
-                        float(parts[3]), float(parts[4]))
+                    v, i, p, e = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+                    print(f"➜ [Terminal] Voltage: {v:.1f}V | Current: {i:.2f}A | Power: {p:.1f}W | Energy: {e:.2f}Wh")
+                    self.gui.after(0, self.gui.update_metrics, float(parts[0]), v, i, p, e)
             except: pass
             
         elif "PROGRESS:" in msg:
