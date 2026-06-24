@@ -54,11 +54,13 @@ class GuiSocket:
 class PiChargerDashboard(tk.Tk):
     def __init__(self):
         super().__init__()
-        # If using a touchscreen on the Pi, you can make this fullscreen
-        # self.attributes('-fullscreen', True)
+        # Make the GUI fullscreen
+        self.attributes('-fullscreen', True)
         self.title("Raspberry Pi Hardware Test (No Wi-SUN)")
-        self.geometry("480x320")  # Standard Pi Touchscreen size
         self.configure(bg="#2d2d2d")
+        
+        # Press ESC to exit fullscreen/close app
+        self.bind("<Escape>", lambda e: self.quit_app())
         
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -141,6 +143,11 @@ class PiChargerDashboard(tk.Tk):
         self.amps_var.set("0.0 A")
         self.watts_var.set("0.0 W")
         self.energy_var.set("0.0 Wh")
+
+    def quit_app(self):
+        self.stop_charge()
+        import os
+        os._exit(0)
 
 # =========================================================
 # CLI LISTENER THREAD
