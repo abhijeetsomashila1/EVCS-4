@@ -64,13 +64,13 @@ class PiChargerDashboard(tk.Tk):
         
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure("TLabel", background="#2d2d2d", foreground="white", font=("Helvetica", 14))
+        style.configure("TLabel", background="#2d2d2d", foreground="white", font=("Helvetica", 20))
         style.configure("TFrame", background="#2d2d2d")
-        style.configure("TButton", font=("Helvetica", 12, "bold"))
+        style.configure("TButton", font=("Helvetica", 18, "bold"))
         
         # Status Label
         self.status_var = tk.StringVar(value="STATUS: READY")
-        self.status_lbl = tk.Label(self, textvariable=self.status_var, bg="#2d2d2d", fg="green", font=("Helvetica", 16, "bold"), pady=10)
+        self.status_lbl = tk.Label(self, textvariable=self.status_var, bg="#2d2d2d", fg="green", font=("Helvetica", 28, "bold"), pady=15)
         self.status_lbl.pack(fill=tk.X)
 
         # Metrics Frame
@@ -85,9 +85,9 @@ class PiChargerDashboard(tk.Tk):
         
         def add_metric(parent, label_text, var):
             f = ttk.Frame(parent)
-            f.pack(fill=tk.X, pady=2)
+            f.pack(fill=tk.X, pady=8)
             ttk.Label(f, text=label_text, width=15).pack(side=tk.LEFT)
-            ttk.Label(f, textvariable=var, font=("Helvetica", 14, "bold"), foreground="#4CAF50").pack(side=tk.RIGHT)
+            ttk.Label(f, textvariable=var, font=("Helvetica", 24, "bold"), foreground="#4CAF50").pack(side=tk.RIGHT)
 
         add_metric(metrics_frame, "Voltage:", self.volts_var)
         add_metric(metrics_frame, "Current:", self.amps_var)
@@ -95,14 +95,14 @@ class PiChargerDashboard(tk.Tk):
         add_metric(metrics_frame, "Energy Delivered:", self.energy_var)
 
         # Buttons Frame
-        btn_frame = ttk.Frame(self, padding=5)
-        btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        btn_frame = ttk.Frame(self, padding=10)
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=10)
         
-        start_btn = tk.Button(btn_frame, text="START (0.1 Units)", bg="#4CAF50", fg="white", font=("Helvetica", 12, "bold"), height=2, command=self.start_charge)
-        start_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        start_btn = tk.Button(btn_frame, text="START (0.1 Units)", bg="#4CAF50", fg="white", font=("Helvetica", 18, "bold"), height=2, command=self.start_charge)
+        start_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
 
-        stop_btn = tk.Button(btn_frame, text="STOP", bg="#f44336", fg="white", font=("Helvetica", 12, "bold"), height=2, command=self.stop_charge)
-        stop_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=5)
+        stop_btn = tk.Button(btn_frame, text="STOP", bg="#f44336", fg="white", font=("Helvetica", 18, "bold"), height=2, command=self.stop_charge)
+        stop_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=10)
         
         # Internal fake socket
         self.fake_sock = GuiSocket(self)
