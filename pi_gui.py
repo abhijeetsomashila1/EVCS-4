@@ -73,9 +73,24 @@ class PiChargerDashboard(tk.Tk):
         self.status_lbl = tk.Label(self, textvariable=self.status_var, bg="#2d2d2d", fg="green", font=("Helvetica", 28, "bold"), pady=15)
         self.status_lbl.pack(fill=tk.X)
 
-        # Metrics Frame
-        metrics_frame = ttk.Frame(self, padding=10)
-        metrics_frame.pack(fill=tk.BOTH, expand=True)
+        # Content Frame to hold both Metrics and QR code
+        content_frame = ttk.Frame(self, padding=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Metrics Frame (Left Side)
+        metrics_frame = ttk.Frame(content_frame)
+        metrics_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # QR Frame (Right Side)
+        qr_frame = ttk.Frame(content_frame)
+        qr_frame.pack(side=tk.RIGHT, padx=20)
+        
+        try:
+            # Keep a reference to prevent garbage collection
+            self.qr_image = tk.PhotoImage(file="qr.png")
+            tk.Label(qr_frame, image=self.qr_image, bg="#2d2d2d").pack()
+        except Exception as e:
+            tk.Label(qr_frame, text="[ QR Missing ]", fg="gray", bg="#2d2d2d").pack()
 
         # Metric Variables
         self.volts_var = tk.StringVar(value="0.0 V")
