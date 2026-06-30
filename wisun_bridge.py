@@ -104,12 +104,23 @@ def serial_listener():
                 # it prints something like: [rx] START
                 
                 if "START" in line.upper():
-                    print("\n[Wi-SUN Bridge] Received START command from Cloud!")
+                    print(f"\n[Wi-SUN Bridge] Received START command from Cloud! Raw: {line}")
                     
-                    # You could parse the exact units from the packet, 
-                    # but for this prototype we will default to 0.1 units (100 Wh)
-                    target_amount = 0.1 
-                    
+                    # Parse the exact units from the packet (e.g., [rx] START:25)
+                    target_amount = 0.1 # Default fallback
+                    try:
+                        # Extract the part after START:
+                        if "START:" in line.upper():
+                            amount_str = line.upper().split("START:")[1].strip()
+                            # It might have trailing characters, so extract the float
+                            import re
+                            match = re.search(r"[\d\.]+", amount_str)
+                            if match:
+                                target_amount = float(match.group())
+                    except Exception as parse_err:
+                        print(f"[Wi-SUN Bridge] Error parsing amount, using default 0.1. Error: {parse_err}")
+
+                    print(f"[Wi-SUN Bridge] Starting charge for {target_amount} units")                    
                     # Launch charging session in background
                     t = threading.Thread(
                         target=Charger_script.Charger,
