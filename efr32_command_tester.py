@@ -8,7 +8,7 @@ import sys
 # Run this on your Raspberry Pi to test sending specific 
 # commands from the EFR32 node through the Wi-SUN network.
 
-WISUN_PORT = "/dev/ttyACM1"     # Change this to your EFR32 port
+WISUN_PORT = "/dev/ttyACM0"     # Change this to your EFR32 port
 BAUD_RATE = 115200
 
 # The IP of the PC/Border Router receiving these commands
