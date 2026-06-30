@@ -10,7 +10,7 @@ import Charger_script
 # CONFIGURATION
 # =========================================================
 
-WISUN_PORT = "/dev/ttyACM1"     # Change if needed
+WISUN_PORT = "/dev/ttyACM0"     # Change if needed
 BAUD_RATE = 115200
 
 # The IPv6 address of your PC (Border Router Backend)
