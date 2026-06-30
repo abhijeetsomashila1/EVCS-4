@@ -220,12 +220,21 @@ if __name__ == "__main__":
     threading.Thread(target=serial_listener, args=(app,), daemon=True).start()
 
     def wisun_init():
+        print("[Wi-SUN Bridge] Closing old sockets to prevent bind errors...")
+        send_wisun_cmd("wisun socket_close 1", wait=0.5)
+        send_wisun_cmd("wisun socket_close 2", wait=0.5)
+        send_wisun_cmd("wisun socket_close 3", wait=0.5)
+
         print("[Wi-SUN Bridge] Joining Wi-SUN network...")
         send_wisun_cmd("wisun join_fan11", wait=5)
+        
         print("[Wi-SUN Bridge] Opening UDP server...")
         send_wisun_cmd("wisun udp_server " + NODE_LISTEN_PORT, wait=2)
+        
         print("[Wi-SUN Bridge] Announcing presence to Border Router...")
+        # Since udp_server opens the first available socket, it usually becomes socket 1
         send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " HELLO:EV001", wait=1)
+        
         print("[Wi-SUN Bridge] Ready!")
         app.after(0, app.update_status, "AVAILABLE", "#00e676")
 
