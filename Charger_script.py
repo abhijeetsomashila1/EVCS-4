@@ -244,9 +244,10 @@ def pzem_charging_session(target_Wh, arduino_socks):
         pzem = get_shared_pzem()
 
         if not pzem.isReady():
-            raise Exception("PZEM-004T not responding even after relay ON")
+            print("WARNING: PZEM-004T not responding! Keeping relay ON for testing without energy monitoring.")
+            # raise Exception("PZEM-004T not responding even after relay ON")
 
-        print("PZEM-004T READY")
+        print("PZEM-004T READY (or bypassed)")
 
         print("=================================")
         print("CHARGING STARTED")
