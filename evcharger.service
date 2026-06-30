@@ -1,0 +1,13 @@
+[Unit]
+Description=EV Charger Wi-SUN Bridge
+After=network.target
+[Service]
+User=evcharger
+WorkingDirectory=/home/evcharger/EVCS-4
+ExecStart=/usr/bin/python3 /home/evcharger/EVCS-4/wisun_bridge.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=multi-user.target
