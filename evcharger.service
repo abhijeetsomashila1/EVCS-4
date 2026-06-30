@@ -1,9 +1,11 @@
 [Unit]
 Description=EV Charger Wi-SUN Bridge
-After=network.target
+After=network.target dev-ttyACM0.device
+BindsTo=dev-ttyACM0.device
 [Service]
 User=evcharger
 WorkingDirectory=/home/evcharger/EVCS-4
+Environment=DISPLAY=:0
 ExecStart=/usr/bin/python3 /home/evcharger/EVCS-4/wisun_bridge.py
 Restart=always
 RestartSec=5
