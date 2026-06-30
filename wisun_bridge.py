@@ -1,184 +1,234 @@
+"""
+wisun_bridge.py  -  EV Charger Wi-SUN Bridge + Local Display
+Combines the Wi-SUN serial command listener with the fullscreen
+Tkinter dashboard.
+"""
+
 import serial
 import time
 import threading
 import sys
+import re
+import tkinter as tk
 
-# Import the actual charger script (assuming it is in the same folder)
 import Charger_script
 
-# =========================================================
-# CONFIGURATION
-# =========================================================
-
-WISUN_PORT = "/dev/ttyACM0"     # Change if needed
-BAUD_RATE = 115200
-
-# The IPv6 address of your PC (Border Router Backend)
-SERVER_IP = "fd12:3456::92fd:9fff:feee:9d54"
-SERVER_UDP_PORT = "5000"
-
-# The port this node will listen on for commands from the backend
+WISUN_PORT       = "/dev/ttyACM0"
+BAUD_RATE        = 115200
+SERVER_IP        = "fd12:3456::92fd:9fff:feee:9d54"
+SERVER_UDP_PORT  = "5000"
 NODE_LISTEN_PORT = "5001"
-
-# =========================================================
-# OPEN SERIAL CONNECTION
-# =========================================================
 
 try:
     ser = serial.Serial(WISUN_PORT, BAUD_RATE, timeout=1)
-    print("\n[Wi-SUN Bridge] Connected to EFR32MG12")
+    print("[Wi-SUN Bridge] Connected to EFR32 on " + WISUN_PORT)
     time.sleep(2)
 except Exception as e:
-    print(f"\n[Wi-SUN Bridge] FAILED TO CONNECT TO EFR32: {e}")
+    print("[Wi-SUN Bridge] FAILED TO CONNECT TO EFR32: " + str(e))
     sys.exit(1)
 
-# =========================================================
-# HELPER TO SEND AT COMMANDS
-# =========================================================
 
 def send_wisun_cmd(cmd, wait=1):
-    ser.write((cmd + '\n').encode())
+    ser.write((cmd + "\n").encode())
     time.sleep(wait)
 
-# =========================================================
-# MOCK SOCKET CLASS FOR CHARGER PROGRESS
-# =========================================================
-# Charger_script.py expects a socket to send UI updates.
-# We will intercept those updates and send them as Wi-SUN UDP packets!
 
-class WiSunUdpSocket:
+class GuiWiSunSocket:
+    def __init__(self, gui_app):
+        self.gui = gui_app
+
     def send(self, data):
-        # Convert bytes to string, strip whitespace
-        msg = data.decode('utf-8').strip()
-        
-        try:
-            import pi_ui
-            if msg.startswith("METRICS:"):
-                pi_ui.update_metrics(msg)
-                
-                # Extract just the progress for Wi-SUN (to save bandwidth)
-                parts = msg.split(":")
-                if len(parts) > 1:
-                    progress = parts[1].split("|")[0]
-                    safe_message = f"PROGRESS:{progress}"
-                    wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
-                    send_wisun_cmd(wisun_packet_cmd, wait=0.1)
-                    
-            elif msg.startswith("CHARGING") or msg.startswith("AVAILABLE"):
-                pi_ui.update_status(msg)
-                safe_message = msg.replace(" ", "_")
-                wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
-                send_wisun_cmd(wisun_packet_cmd, wait=0.1)
-                
-            else:
-                safe_message = msg.replace(" ", "_")
-                wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
-                send_wisun_cmd(wisun_packet_cmd, wait=0.1)
-                
-        except Exception as e:
-            print(f"UI integration error: {e}")
-            # Fallback
-            safe_message = msg.replace(" ", "_")
-            wisun_packet_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} {safe_message}'
-            send_wisun_cmd(wisun_packet_cmd, wait=0.1)
+        msg = data.decode("utf-8").strip()
 
-wisun_sock = WiSunUdpSocket()
+        if "METRICS:" in msg:
+            try:
+                parts = msg.split(":")[1].split("|")
+                if len(parts) >= 5:
+                    pct = float(parts[0])
+                    v   = float(parts[1])
+                    i   = float(parts[2])
+                    p   = float(parts[3])
+                    e   = float(parts[4])
+                    print("[PZEM] V=%.1fV  I=%.2fA  P=%.1fW  E=%.2fWh  (%.1f%%)" % (v, i, p, e, pct))
+                    self.gui.after(0, self.gui.update_metrics, pct, v, i, p, e)
+                    send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " PROGRESS:%.1f" % pct, wait=0.1)
+            except Exception as ex:
+                print("[GuiWiSunSocket] METRICS parse error: " + str(ex))
 
-# =========================================================
-# SERIAL LISTENER THREAD
-# =========================================================
+        elif "CHARGING" in msg:
+            self.gui.after(0, self.gui.update_status, "CHARGING", "orange")
+            send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " CHARGING", wait=0.1)
 
-def serial_listener():
-    """Continuously reads from the EFR32 and parses incoming UDP commands."""
+        elif "COMPLETE" in msg:
+            self.gui.after(0, self.gui.update_status, "COMPLETE", "blue")
+            self.gui.after(0, self.gui.reset_metrics)
+            send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " COMPLETE", wait=0.1)
+
+        elif "AVAILABLE" in msg:
+            self.gui.after(0, self.gui.update_status, "AVAILABLE", "green")
+            self.gui.after(0, self.gui.reset_metrics)
+            send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " AVAILABLE", wait=0.1)
+
+        elif "FAULT" in msg:
+            self.gui.after(0, self.gui.update_status, "FAULT", "red")
+            send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " FAULT", wait=0.1)
+
+
+def serial_listener(gui_app):
+    gui_sock = GuiWiSunSocket(gui_app)
+
     while True:
         try:
             if ser.in_waiting:
-                line = ser.readline().decode(errors='ignore').strip()
+                line = ser.readline().decode(errors="ignore").strip()
                 if not line:
                     continue
-                
-                print(f"[EFR32] {line}")
-                
-                # Check if it's an incoming UDP message containing a command
-                # The exact format depends on Silicon Labs firmware, but usually
-                # it prints something like: [rx] START
-                
+
+                print("[EFR32] " + line)
+
                 if "START" in line.upper():
-                    print(f"\n[Wi-SUN Bridge] Received START command from Cloud! Raw: {line}")
-                    
-                    # Parse the exact units from the packet (e.g., [rx] START:25)
-                    target_amount = 0.1 # Default fallback
+                    print("[Wi-SUN Bridge] Received START command! Raw: " + line)
+
+                    target_amount = 0.1
                     try:
-                        # Extract the part after START:
                         if "START:" in line.upper():
                             amount_str = line.upper().split("START:")[1].strip()
-                            # It might have trailing characters, so extract the float
-                            import re
                             match = re.search(r"[\d\.]+", amount_str)
                             if match:
                                 target_amount = float(match.group())
                     except Exception as parse_err:
-                        print(f"[Wi-SUN Bridge] Error parsing amount, using default 0.1. Error: {parse_err}")
+                        print("[Wi-SUN Bridge] Amount parse error, using 0.1: " + str(parse_err))
 
-                    print(f"[Wi-SUN Bridge] Starting charge for {target_amount} units")                    
-                    # Launch charging session in background
+                    print("[Wi-SUN Bridge] Charging %.1f units" % target_amount)
+                    gui_app.after(0, gui_app.update_status, "CHARGING (%.1f units)" % target_amount, "orange")
+                    gui_app.after(0, gui_app.reset_metrics)
+
                     t = threading.Thread(
                         target=Charger_script.Charger,
                         kwargs={
-                            "Rfid_valid": True,
-                            "amount": target_amount,
+                            "Rfid_valid":       True,
+                            "amount":           target_amount,
                             "arduino_socket_q": [],
-                            "arduino_socks": wisun_sock
-                        }
+                            "arduino_socks":    gui_sock
+                        },
+                        daemon=True
                     )
-                    t.daemon = True
                     t.start()
-                    
+
                 elif "STOP" in line.upper():
-                    print("\n[Wi-SUN Bridge] Received STOP command from Cloud!")
+                    print("[Wi-SUN Bridge] Received STOP command!")
                     Charger_script.stop_charging()
-                
+                    gui_app.after(0, gui_app.update_status, "STOPPED", "red")
+
         except Exception as e:
-            print(f"[serial_listener] error: {e}")
+            print("[serial_listener] error: " + str(e))
             time.sleep(1)
 
-# =========================================================
-# MAIN INITIALIZATION
-# =========================================================
+
+class ChargerDashboard(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.attributes("-fullscreen", True)
+        self.title("EV Charger - Wi-SUN Monitor")
+        self.configure(bg="#1a1a2e")
+        self.bind("<Escape>", lambda e: self._quit())
+
+        self.status_var = tk.StringVar(value="STATUS: INITIALIZING...")
+        self.status_lbl = tk.Label(
+            self, textvariable=self.status_var,
+            bg="#1a1a2e", fg="#ffaa00",
+            font=("Helvetica", 30, "bold"), pady=18
+        )
+        self.status_lbl.pack(fill=tk.X)
+
+        tk.Frame(self, bg="#333366", height=2).pack(fill=tk.X)
+
+        content = tk.Frame(self, bg="#1a1a2e")
+        content.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        metrics_frame = tk.Frame(content, bg="#1a1a2e")
+        metrics_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.volts_var    = tk.StringVar(value="--- V")
+        self.amps_var     = tk.StringVar(value="--- A")
+        self.watts_var    = tk.StringVar(value="--- W")
+        self.energy_var   = tk.StringVar(value="--- Wh")
+        self.progress_var = tk.StringVar(value="0 %")
+
+        def add_metric(parent, label, var):
+            row = tk.Frame(parent, bg="#16213e")
+            row.pack(fill=tk.X, pady=8, ipady=12, padx=10)
+            tk.Label(row, text=label, bg="#16213e", fg="#aaaacc",
+                     font=("Helvetica", 20), anchor="w", width=22).pack(side=tk.LEFT, padx=16)
+            tk.Label(row, textvariable=var, bg="#16213e", fg="#00e676",
+                     font=("Helvetica", 26, "bold")).pack(side=tk.RIGHT, padx=16)
+
+        tk.Label(metrics_frame, text="LIVE METRICS", bg="#1a1a2e", fg="#6666aa",
+                 font=("Helvetica", 16, "bold")).pack(anchor="w", padx=10, pady=(0, 4))
+
+        add_metric(metrics_frame, "Voltage",          self.volts_var)
+        add_metric(metrics_frame, "Current",          self.amps_var)
+        add_metric(metrics_frame, "Power",            self.watts_var)
+        add_metric(metrics_frame, "Energy Delivered", self.energy_var)
+        add_metric(metrics_frame, "Progress",         self.progress_var)
+
+        qr_frame = tk.Frame(content, bg="#1a1a2e")
+        qr_frame.pack(side=tk.RIGHT, padx=30, pady=10)
+
+        tk.Label(qr_frame, text="Scan to Charge", bg="#1a1a2e", fg="#aaaacc",
+                 font=("Helvetica", 16)).pack(pady=(0, 8))
+        try:
+            self.qr_image = tk.PhotoImage(file="qr.png")
+            tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
+        except Exception:
+            tk.Label(qr_frame, text="[ QR Missing ]", fg="#666699", bg="#1a1a2e",
+                     font=("Helvetica", 16)).pack()
+
+        tk.Frame(self, bg="#333366", height=2).pack(fill=tk.X)
+        tk.Label(self, text="EV Charger  |  SCRC, IIIT Hyderabad  |  Wi-SUN Network",
+                 bg="#1a1a2e", fg="#555577", font=("Helvetica", 12)).pack(pady=8)
+
+    def update_status(self, text, color):
+        self.status_var.set("STATUS: " + text)
+        self.status_lbl.configure(fg=color)
+
+    def update_metrics(self, progress=None, voltage=None, current=None, power=None, energy=None):
+        if voltage  is not None: self.volts_var.set("%.1f V" % voltage)
+        if current  is not None: self.amps_var.set("%.2f A" % current)
+        if power    is not None: self.watts_var.set("%.1f W" % power)
+        if energy   is not None: self.energy_var.set("%.2f Wh" % energy)
+        if progress is not None: self.progress_var.set("%.1f %%" % progress)
+
+    def reset_metrics(self):
+        self.volts_var.set("--- V")
+        self.amps_var.set("--- A")
+        self.watts_var.set("--- W")
+        self.energy_var.set("--- Wh")
+        self.progress_var.set("0 %")
+
+    def _quit(self):
+        Charger_script.stop_charging()
+        import os
+        os._exit(0)
+
 
 if __name__ == "__main__":
-    print("\n[Wi-SUN Bridge] Initializing Wi-SUN Network...")
-    
-    # 1. Start the serial listener so we can see all responses
-    listener_thread = threading.Thread(target=serial_listener)
-    listener_thread.daemon = True
-    listener_thread.start()
+    print("[Wi-SUN Bridge] Starting...")
 
-    # 2. Join the Wi-SUN Network
-    send_wisun_cmd("wisun join_fan11", wait=5)
-    
-    # 3. Open a UDP server to listen for commands from the backend
-    send_wisun_cmd(f"wisun udp_server {NODE_LISTEN_PORT}", wait=2)
-    
-    # 4. Announce presence to the Backend so it can learn our dynamic IPv6 address!
-    print("\n[Wi-SUN Bridge] Announcing presence to Backend...")
-    hello_cmd = f'wisun socket_writeto 1 {SERVER_IP} {SERVER_UDP_PORT} HELLO:EV001'
-    send_wisun_cmd(hello_cmd, wait=1)
-    
-    print("\n[Wi-SUN Bridge] Ready and waiting for commands!")
-    
-    # Launch the Local Tkinter Dashboard!
-    # This will block and keep the main thread alive.
-    print("\n[Wi-SUN Bridge] Launching Local Display UI...")
-    try:
-        import pi_ui
-        pi_ui.start_ui()
-    except Exception as e:
-        print(f"Failed to start UI: {e}")
-        # Fallback to standard keep-alive
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            ser.close()
+    app = ChargerDashboard()
+
+    threading.Thread(target=serial_listener, args=(app,), daemon=True).start()
+
+    def wisun_init():
+        print("[Wi-SUN Bridge] Joining Wi-SUN network...")
+        send_wisun_cmd("wisun join_fan11", wait=5)
+        print("[Wi-SUN Bridge] Opening UDP server...")
+        send_wisun_cmd("wisun udp_server " + NODE_LISTEN_PORT, wait=2)
+        print("[Wi-SUN Bridge] Announcing presence to Border Router...")
+        send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " HELLO:EV001", wait=1)
+        print("[Wi-SUN Bridge] Ready!")
+        app.after(0, app.update_status, "AVAILABLE", "#00e676")
+
+    threading.Thread(target=wisun_init, daemon=True).start()
+
+    app.mainloop()
