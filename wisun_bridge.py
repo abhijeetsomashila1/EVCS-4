@@ -221,12 +221,13 @@ if __name__ == "__main__":
 
     def wisun_init():
         print("[Wi-SUN Bridge] Closing old sockets to prevent bind errors...")
+        send_wisun_cmd("wisun socket_close 0", wait=0.5)
         send_wisun_cmd("wisun socket_close 1", wait=0.5)
         send_wisun_cmd("wisun socket_close 2", wait=0.5)
         send_wisun_cmd("wisun socket_close 3", wait=0.5)
 
-        print("[Wi-SUN Bridge] Joining Wi-SUN network...")
-        send_wisun_cmd("wisun join_fan11", wait=5)
+        print("[Wi-SUN Bridge] Joining Wi-SUN network (waiting 20s for IPv6 address)...")
+        send_wisun_cmd("wisun join_fan11", wait=20)
         
         print("[Wi-SUN Bridge] Opening UDP server...")
         send_wisun_cmd("wisun udp_server " + NODE_LISTEN_PORT, wait=2)
