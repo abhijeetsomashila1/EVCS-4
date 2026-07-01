@@ -229,8 +229,9 @@ if __name__ == "__main__":
         print("[Wi-SUN Bridge] Joining Wi-SUN network (waiting 20s for IPv6 address)...")
         send_wisun_cmd("wisun join_fan11", wait=20)
         
-        print("[Wi-SUN Bridge] Opening UDP server...")
-        send_wisun_cmd("wisun udp_server " + NODE_LISTEN_PORT, wait=2)
+        print("[Wi-SUN Bridge] Opening UDP socket directly...")
+        send_wisun_cmd("wisun socket_open udp", wait=1)
+        send_wisun_cmd("wisun socket_bind 1 " + NODE_LISTEN_PORT, wait=1)
         
         print("[Wi-SUN Bridge] Announcing presence to Border Router...")
         # Since udp_server opens the first available socket, it usually becomes socket 1
