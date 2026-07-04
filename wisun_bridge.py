@@ -106,10 +106,8 @@ def serial_listener(gui_app):
                     t = threading.Thread(
                         target=Charger_script.Charger,
                         kwargs={
-                            "Rfid_valid":       True,
                             "amount":           target_amount,
-                            "arduino_socket_q": [],
-                            "arduino_socks":    gui_sock
+                            "ui_socket":        gui_sock
                         },
                         daemon=True
                     )

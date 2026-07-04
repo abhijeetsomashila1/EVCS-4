@@ -170,7 +170,7 @@ def close_shared_pzem():
 # RELAY TIMER  (legacy — fixed time, no PZEM)
 # =========================================================
 
-def relay_timer(arduino_socks):
+def relay_timer(ui_socket):
     """
     Original fixed-time relay function (kept for backwards compatibility).
     Prefer using Charger() which uses PZEM for energy-based cutoff.
@@ -180,7 +180,7 @@ def relay_timer(arduino_socks):
         print("Relay ON (Charging)")
 
         try:
-            arduino_socks.send(b"CHARGING\n")
+            ui_socket.send(b"CHARGING\n")
         except Exception:
             pass
 
@@ -190,7 +190,7 @@ def relay_timer(arduino_socks):
         print("Relay OFF (Standby)")
 
         try:
-            arduino_socks.send(b"AVAILABLE\n")
+            ui_socket.send(b"AVAILABLE\n")
         except Exception:
             pass
 
@@ -203,13 +203,13 @@ def relay_timer(arduino_socks):
 # PZEM CHARGING SESSION
 # =========================================================
 
-def pzem_charging_session(target_Wh, arduino_socks):
+def pzem_charging_session(target_Wh, ui_socket):
     """
     Controls the relay based on real PZEM-004T power readings.
 
     Args:
         target_Wh     : Energy to deliver in Wh (e.g. 30000 for 30 kWh)
-        arduino_socks : Socket to send live readings and status to the UI
+        ui_socket     : Socket to send live readings and status to the UI
 
     Steps:
       1. Open PZEM serial connection
@@ -255,7 +255,7 @@ def pzem_charging_session(target_Wh, arduino_socks):
         print("=================================")
 
         try:
-            arduino_socks.send(b"CHARGING\n")
+            ui_socket.send(b"CHARGING\n")
         except Exception:
             pass
 
@@ -296,7 +296,7 @@ def pzem_charging_session(target_Wh, arduino_socks):
             try:
                 # Send full metrics so the local UI can parse it
                 msg = f"METRICS:{progress_pct:.1f}|{readings['voltage_V']:.1f}|{readings['current_A']:.2f}|{readings['power_W']:.1f}|{energy_Wh:.2f}\n"
-                arduino_socks.send(msg.encode())
+                ui_socket.send(msg.encode())
             except Exception:
                 pass
 
@@ -312,10 +312,10 @@ def pzem_charging_session(target_Wh, arduino_socks):
         print("=================================")
 
         try:
-            arduino_socks.send(
+            ui_socket.send(
                 f"COMPLETE:Energy={energy_Wh:.1f}Wh\n".encode()
             )
-            arduino_socks.send(b"AVAILABLE\n")
+            ui_socket.send(b"AVAILABLE\n")
         except Exception:
             pass
 
@@ -326,7 +326,7 @@ def pzem_charging_session(target_Wh, arduino_socks):
         GPIO.output(RELAY_PIN, GPIO.LOW)
 
         try:
-            arduino_socks.send(b"FAULT\n")
+            ui_socket.send(b"FAULT\n")
         except Exception:
             pass
 
@@ -354,15 +354,13 @@ def units_to_wh(units):
     return target_Wh
 
 
-def Charger(Rfid_valid, amount, arduino_socket_q, arduino_socks):
+def Charger(amount, ui_socket):
     """
     Entry point called when the app sends a unit amount (e.g. "APP:5").
 
     Args:
-        Rfid_valid       : Bool   — RFID authentication result (unused here)
         amount           : int/str — unit value entered in the app
-        arduino_socket_q : deque  — incoming message queue from Arduino
-        arduino_socks    : socket — connection back to the UI
+        ui_socket        : socket — connection back to the UI
 
     Pricing:
         1 unit  = {WH_PER_UNIT} Wh  (1 kWh)
@@ -386,7 +384,7 @@ def Charger(Rfid_valid, amount, arduino_socket_q, arduino_socks):
             raise ValueError(f"Calculated target is 0 Wh. Check WH_PER_UNIT.")
 
         print("===================================")
-        print("BLE USER CONNECTED")
+        print("WEB USER CONNECTED")
         print(f"Units to charge : {units:.1f} unit(s)")
         print(f"Target energy   : {target_Wh:.0f} Wh  ({target_Wh/1000:.2f} kWh)")
         print(f"Estimated Cost  : ₹{units * PRICE_PER_UNIT:.2f} (@ ₹{PRICE_PER_UNIT}/unit)")
@@ -394,7 +392,7 @@ def Charger(Rfid_valid, amount, arduino_socket_q, arduino_socks):
 
         # ---- send summary to UI ----
         try:
-            arduino_socks.send(
+            ui_socket.send(
                 f"SESSION:Units={units:.1f} Target={target_Wh/1000:.2f}kWh Cost=Rs{units * PRICE_PER_UNIT:.0f}\n"
                 .encode()
             )
@@ -404,7 +402,7 @@ def Charger(Rfid_valid, amount, arduino_socket_q, arduino_socks):
         # ---- launch PZEM charging session in background thread ----
         threading.Thread(
             target=pzem_charging_session,
-            args=(target_Wh, arduino_socks),
+            args=(target_Wh, ui_socket),
             daemon=True
         ).start()
 
@@ -458,10 +456,8 @@ if __name__ == "__main__":
     TEST_AMOUNT = 0.1
     print(f"Running test with {TEST_AMOUNT} units ...")
     Charger(
-        Rfid_valid       = True,
-        amount           = TEST_AMOUNT,
-        arduino_socket_q = [],
-        arduino_socks    = _FakeSock()
+        amount    = TEST_AMOUNT,
+        ui_socket = _FakeSock()
     )
 
     # Keep main thread alive so daemon thread can run
