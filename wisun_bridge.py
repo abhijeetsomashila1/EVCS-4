@@ -229,11 +229,15 @@ if __name__ == "__main__":
         
         print("[Wi-SUN Bridge] Opening UDP socket directly...")
         send_wisun_cmd("wisun socket_open udp", wait=1)
-        send_wisun_cmd("wisun socket_bind 1 " + NODE_LISTEN_PORT, wait=1)
+        
+        # We broadcast the bind and HELLO to both socket 0 and socket 1 
+        # just in case the EFR32 module allocated socket 0 instead of 1!
+        send_wisun_cmd("wisun socket_bind 0 " + NODE_LISTEN_PORT, wait=0.5)
+        send_wisun_cmd("wisun socket_bind 1 " + NODE_LISTEN_PORT, wait=0.5)
         
         print("[Wi-SUN Bridge] Announcing presence to Border Router...")
-        # Since udp_server opens the first available socket, it usually becomes socket 1
-        send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " HELLO:EV001", wait=1)
+        send_wisun_cmd("wisun socket_writeto 0 " + SERVER_IP + " " + SERVER_UDP_PORT + " HELLO:EV001", wait=0.5)
+        send_wisun_cmd("wisun socket_writeto 1 " + SERVER_IP + " " + SERVER_UDP_PORT + " HELLO:EV001", wait=0.5)
         
         print("[Wi-SUN Bridge] Ready!")
         app.after(0, app.update_status, "AVAILABLE", "#00e676")
