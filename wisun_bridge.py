@@ -226,8 +226,8 @@ if __name__ == "__main__":
         send_wisun_cmd("wisun socket_close 2", wait=0.5)
         send_wisun_cmd("wisun socket_close 3", wait=0.5)
 
-        print("[Wi-SUN Bridge] Joining Wi-SUN network (waiting 20s for IPv6 address)...")
-        send_wisun_cmd("wisun join_fan11", wait=20)
+        print("[Wi-SUN Bridge] Joining Wi-SUN network (waiting 80s for IPv6 address)...")
+        send_wisun_cmd("wisun join_fan11", wait=80)
         
         print("[Wi-SUN Bridge] Opening UDP socket directly...")
         send_wisun_cmd("wisun socket_open udp", wait=1)
