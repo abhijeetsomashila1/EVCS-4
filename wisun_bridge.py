@@ -235,13 +235,16 @@ if __name__ == "__main__":
         print("[Wi-SUN Bridge] Opening UDP socket directly...")
         send_wisun_cmd("wisun udp_server " + NODE_LISTEN_PORT, wait=1.0)
         
-        print("[Wi-SUN Bridge] Announcing presence to Border Router...")
-        # Broadcast HELLO to all potential socket IDs to guarantee transmission
-        for sock_id in range(4):
-            send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "HELLO:EV001"', wait=0.2)
-        
         print("[Wi-SUN Bridge] Ready!")
         app.after(0, app.update_status, "AVAILABLE", "#00e676")
+        
+        print("[Wi-SUN Bridge] Starting HELLO heartbeat...")
+        # Loop forever, sending a heartbeat every 30 seconds.
+        # This guarantees connection even if the Wi-SUN network takes 5+ minutes to assign an IP!
+        while True:
+            for sock_id in range(4):
+                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "HELLO:EV001"', wait=0.2)
+            time.sleep(30)
 
     threading.Thread(target=wisun_init, daemon=True).start()
 
