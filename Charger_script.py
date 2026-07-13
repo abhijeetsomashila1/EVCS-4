@@ -103,17 +103,18 @@ class ChargerDashboard(tk.Tk):
         add_metric(metrics_frame, "Power",            self.watts_var)
         add_metric(metrics_frame, "Energy Delivered", self.energy_var)
 
-        qr_frame = tk.Frame(content, bg="#1a1a2e")
-        qr_frame.pack(side=tk.RIGHT, padx=30, pady=10)
+        # Temporarily removed QR code as requested
+        # qr_frame = tk.Frame(content, bg="#1a1a2e")
+        # qr_frame.pack(side=tk.RIGHT, padx=30, pady=10)
 
-        tk.Label(qr_frame, text="Scan to Charge", bg="#1a1a2e", fg="#aaaacc",
-                 font=("Helvetica", 16)).pack(pady=(0, 8))
-        try:
-            self.qr_image = tk.PhotoImage(file="qr.png")
-            tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
-        except Exception:
-            tk.Label(qr_frame, text="[ QR Missing ]", fg="#666699", bg="#1a1a2e",
-                     font=("Helvetica", 16)).pack()
+        # tk.Label(qr_frame, text="Scan to Charge", bg="#1a1a2e", fg="#aaaacc",
+        #          font=("Helvetica", 16)).pack(pady=(0, 8))
+        # try:
+        #     self.qr_image = tk.PhotoImage(file="qr.png")
+        #     tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
+        # except Exception:
+        #     tk.Label(qr_frame, text="[ QR Missing ]", fg="#666699", bg="#1a1a2e",
+        #              font=("Helvetica", 16)).pack()
 
         tk.Frame(self, bg="#333366", height=2).pack(fill=tk.X)
         tk.Label(self, text="EV Charger  |  SCRC, IIIT Hyderabad",
