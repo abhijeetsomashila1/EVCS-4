@@ -134,7 +134,10 @@ class ChargerDashboard(tk.Tk):
         if voltage  is not None: self.volts_var.set("%.1f V" % voltage)
         if current  is not None: self.amps_var.set("%.2f A" % current)
         if power    is not None: self.watts_var.set("%.1f W" % power)
-        if energy   is not None: self.energy_var.set("%.2f Units" % energy)
+        if energy   is not None: 
+            # Convert raw Watt-hours to standard Units (kWh)
+            units = energy / 1000.0
+            self.energy_var.set("%.3f Units" % units)
 
     def _quit(self):
         os._exit(0)
