@@ -52,31 +52,31 @@ class GuiWiSunSocket:
                     print("[PZEM] V=%.1fV  I=%.2fA  P=%.1fW  E=%.2fWh  (%.1f%%)" % (v, i, p, e, pct))
                     self.gui.after(0, self.gui.update_metrics, pct, v, i, p, e)
                     for sock_id in range(10):
-                        send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "PROGRESS:{pct:.1f}"', wait=0.05)
+                        send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "PROGRESS:{pct:.1f}"', wait=0.1)
             except Exception as ex:
                 print("[GuiWiSunSocket] METRICS parse error: " + str(ex))
 
         elif "CHARGING" in msg:
             self.gui.after(0, self.gui.update_status, "CHARGING", "orange")
             for sock_id in range(10):
-                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "CHARGING"', wait=0.05)
+                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "CHARGING"', wait=0.1)
 
         elif "COMPLETE" in msg:
             self.gui.after(0, self.gui.update_status, "COMPLETE", "blue")
             self.gui.after(0, self.gui.reset_metrics)
             for sock_id in range(10):
-                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "COMPLETE"', wait=0.05)
+                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "COMPLETE"', wait=0.1)
 
         elif "AVAILABLE" in msg:
             self.gui.after(0, self.gui.update_status, "AVAILABLE", "green")
             self.gui.after(0, self.gui.reset_metrics)
             for sock_id in range(10):
-                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "AVAILABLE"', wait=0.05)
+                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "AVAILABLE"', wait=0.1)
 
         elif "FAULT" in msg:
             self.gui.after(0, self.gui.update_status, "FAULT", "red")
             for sock_id in range(10):
-                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "FAULT"', wait=0.05)
+                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "FAULT"', wait=0.1)
 
 
 def serial_listener(gui_app):
@@ -224,10 +224,8 @@ if __name__ == "__main__":
 
     def wisun_init():
         print("[Wi-SUN Bridge] Closing old sockets to prevent bind errors...")
-        send_wisun_cmd("wisun socket_close 0", wait=0.5)
-        send_wisun_cmd("wisun socket_close 1", wait=0.5)
-        send_wisun_cmd("wisun socket_close 2", wait=0.5)
-        send_wisun_cmd("wisun socket_close 3", wait=0.5)
+        for sock_id in range(10):
+            send_wisun_cmd(f"wisun socket_close {sock_id}", wait=0.1)
 
         print("[Wi-SUN Bridge] Joining Wi-SUN network (waiting 80s for IPv6 address)...")
         send_wisun_cmd("wisun join_fan11", wait=80)
@@ -243,7 +241,7 @@ if __name__ == "__main__":
         # This guarantees connection even if the Wi-SUN network takes 5+ minutes to assign an IP!
         while True:
             for sock_id in range(10):
-                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "HELLO:EV001"', wait=0.05)
+                send_wisun_cmd(f'wisun socket_writeto {sock_id} {SERVER_IP} {SERVER_UDP_PORT} "HELLO:EV001"', wait=0.2)
             time.sleep(30)
 
     threading.Thread(target=wisun_init, daemon=True).start()
