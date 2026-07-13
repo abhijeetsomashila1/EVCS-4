@@ -27,6 +27,7 @@ class PZEM:
         self.instrument.serial.parity = serial.PARITY_NONE
         self.instrument.serial.stopbits = 1
         self.instrument.serial.timeout = 1.0
+        self.initial_energy = None
 
     def isReady(self):
         try:
@@ -43,19 +44,26 @@ class PZEM:
             p_regs = self.instrument.read_registers(3, 2, functioncode=4)
             power = (p_regs[0] + (p_regs[1] << 16)) / 10.0
             e_regs = self.instrument.read_registers(5, 2, functioncode=4)
-            energy_Wh = float(e_regs[0] + (e_regs[1] << 16))
+            raw_energy_Wh = float(e_regs[0] + (e_regs[1] << 16))
         except Exception:
             # Fallback
             voltage = self.instrument.read_register(0, 1, functioncode=4)
             current = self.instrument.read_register(1, 3, functioncode=4)
             power   = self.instrument.read_register(3, 1, functioncode=4)
-            energy_Wh = float(self.instrument.read_register(5, 0, functioncode=4))
+            raw_energy_Wh = float(self.instrument.read_register(5, 0, functioncode=4))
+
+        # Set the baseline energy on the very first successful read
+        if self.initial_energy is None:
+            self.initial_energy = raw_energy_Wh
+
+        # Subtract the baseline to show only energy delivered this session
+        session_energy_Wh = raw_energy_Wh - self.initial_energy
 
         return {
             "voltage_V" : voltage,
             "current_A" : current,
             "power_W"   : power,
-            "energy_Wh" : energy_Wh,
+            "energy_Wh" : session_energy_Wh,
         }
 
 class ChargerDashboard(tk.Tk):
@@ -85,7 +93,8 @@ class ChargerDashboard(tk.Tk):
         self.volts_var    = tk.StringVar(value="--- V")
         self.amps_var     = tk.StringVar(value="--- A")
         self.watts_var    = tk.StringVar(value="--- W")
-        self.energy_var   = tk.StringVar(value="--- Wh")
+        self.energy_var   = tk.StringVar(value="--- Units")
+        self.target_var   = tk.StringVar(value="--- Units")
 
         def add_metric(parent, label, var):
             row = tk.Frame(parent, bg="#16213e")
@@ -101,7 +110,8 @@ class ChargerDashboard(tk.Tk):
         add_metric(metrics_frame, "Voltage",          self.volts_var)
         add_metric(metrics_frame, "Current",          self.amps_var)
         add_metric(metrics_frame, "Power",            self.watts_var)
-        add_metric(metrics_frame, "Energy Delivered", self.energy_var)
+        add_metric(metrics_frame, "Units Delivered",  self.energy_var)
+        add_metric(metrics_frame, "Target Units",     self.target_var)
 
         # Temporarily removed QR code as requested
         # qr_frame = tk.Frame(content, bg="#1a1a2e")
@@ -124,7 +134,7 @@ class ChargerDashboard(tk.Tk):
         if voltage  is not None: self.volts_var.set("%.1f V" % voltage)
         if current  is not None: self.amps_var.set("%.2f A" % current)
         if power    is not None: self.watts_var.set("%.1f W" % power)
-        if energy   is not None: self.energy_var.set("%.2f Wh" % energy)
+        if energy   is not None: self.energy_var.set("%.2f Units" % energy)
 
     def _quit(self):
         os._exit(0)
@@ -142,7 +152,18 @@ def monitor_pzem(app):
     while True:
         try:
             readings = pzem.readAll()
-            print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  E={readings['energy_Wh']:.1f}Wh")
+            print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  Units={readings['energy_Wh']:.1f}")
+            
+            # Read the target units from the file written by the backend
+            try:
+                with open("target.txt", "r") as f:
+                    target_val = float(f.read().strip())
+                    if target_val > 0:
+                        app.after(0, lambda v=target_val: app.target_var.set(f"{v:.1f} Units"))
+                    else:
+                        app.after(0, lambda: app.target_var.set("--- Units"))
+            except Exception:
+                app.after(0, lambda: app.target_var.set("--- Units"))
             
             # Update Tkinter safely from this background thread
             app.after(0, app.update_metrics, 
