@@ -110,7 +110,7 @@ class ChargerDashboard(tk.Tk):
         add_metric(metrics_frame, "Voltage",          self.volts_var)
         add_metric(metrics_frame, "Current",          self.amps_var)
         add_metric(metrics_frame, "Power",            self.watts_var)
-        add_metric(metrics_frame, "Units Delivered",  self.energy_var)
+        # add_metric(metrics_frame, "Units Delivered",  self.energy_var)
         add_metric(metrics_frame, "Target Units",     self.target_var)
 
         # Temporarily removed QR code as requested
