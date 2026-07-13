@@ -1,0 +1,17 @@
+[Unit]
+Description=EV Charger PZEM LCD Display
+After=network.target graphical.target
+
+[Service]
+User=evcharger
+WorkingDirectory=/home/evcharger/EVCS-4
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/evcharger/.Xauthority
+ExecStart=/usr/bin/python3 /home/evcharger/EVCS-4/Charger_script.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target
