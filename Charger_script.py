@@ -13,6 +13,8 @@ import threading
 import minimalmodbus
 import tkinter as tk
 import os
+import urllib.request
+import json
 
 PZEM_PORT   = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"
 PZEM_BAUD   = 9600
@@ -142,9 +144,21 @@ class ChargerDashboard(tk.Tk):
     def _quit(self):
         os._exit(0)
 
+WSTK_PORT = '/dev/ttyACM0'
+WSTK_BAUD = 115200
+
 def monitor_pzem(app):
     print("Starting PZEM continuous monitoring...")
     pzem = PZEM()
+    auto_stopped = False  # flag to prevent repeated stop calls
+
+    # Try to connect to the WSTK board over UART
+    wstk_serial = None
+    try:
+        wstk_serial = serial.Serial(WSTK_PORT, WSTK_BAUD, timeout=1)
+        print(f"Connected to WSTK on {WSTK_PORT}")
+    except Exception as e:
+        print(f"Warning: Could not connect to WSTK on {WSTK_PORT}: {e}")
 
     while not pzem.isReady():
         print("Waiting for PZEM to connect...")
@@ -157,16 +171,51 @@ def monitor_pzem(app):
             readings = pzem.readAll()
             print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  Units={readings['energy_Wh']:.1f}")
             
+            # Formulate the string for the WSTK board exactly as requested
+            pzem_string = "V:%.1f,A:%.2f,W:%.1f,Wh:%.1f\n" % (
+                readings["voltage_V"],
+                readings["current_A"],
+                readings["power_W"],
+                readings["energy_Wh"]
+            )
+            
+            # Send the string over UART to the WSTK
+            if wstk_serial is not None and wstk_serial.is_open:
+                try:
+                    wstk_serial.write(pzem_string.encode('utf-8'))
+                except Exception as serial_err:
+                    print(f"UART Write Error: {serial_err}")
+            
             # Read the target units from the file written by the backend
+            target_val = 0.0
             try:
-                with open("target.txt", "r") as f:
+                with open("/tmp/evcs_target.txt", "r") as f:
                     target_val = float(f.read().strip())
                     if target_val > 0:
                         app.after(0, lambda v=target_val: app.target_var.set(f"{v:.1f} Units"))
                     else:
                         app.after(0, lambda: app.target_var.set("--- Units"))
+                        auto_stopped = False  # reset flag when no active session
             except Exception:
                 app.after(0, lambda: app.target_var.set("--- Units"))
+
+            # --- AUTO-STOP: turn off relay when target is reached ---
+            energy_units = readings["energy_Wh"] / 1000.0
+            if target_val > 0 and energy_units >= target_val and not auto_stopped:
+                print(f"[Auto-Stop] Target reached ({energy_units:.3f} >= {target_val} units). Stopping session...")
+                auto_stopped = True
+                try:
+                    req = urllib.request.Request(
+                        "http://localhost:3000/api/session/stop-active",
+                        data=b"{}",
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        print(f"[Auto-Stop] Backend response: {resp.read().decode()}")
+                except Exception as stop_err:
+                    print(f"[Auto-Stop] Error calling backend: {stop_err}")
+            # --------------------------------------------------------
             
             # Update Tkinter safely from this background thread
             app.after(0, app.update_metrics, 
