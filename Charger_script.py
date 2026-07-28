@@ -13,7 +13,6 @@ import threading
 import minimalmodbus
 import tkinter as tk
 import os
-import subprocess
 import urllib.request
 import json
 
@@ -188,7 +187,6 @@ def monitor_pzem(app):
                     print(f"UART Write Error: {serial_err}")
             
             # Read the target units from the file written by the backend
-            target_val = 0.0
             try:
                 with open("/tmp/evcs_target.txt", "r") as f:
                     target_val = float(f.read().strip())
@@ -196,41 +194,23 @@ def monitor_pzem(app):
                         app.after(0, lambda v=target_val: app.target_var.set(f"{v:.1f} Units"))
                     else:
                         app.after(0, lambda: app.target_var.set("--- Units"))
-                        auto_stopped = False  # reset flag when no active session
             except Exception:
                 app.after(0, lambda: app.target_var.set("--- Units"))
 
-            # --- AUTO-STOP: turn off relay when target is reached ---
-            energy_units = readings["energy_Wh"] / 1000.0
-            if target_val > 0 and energy_units >= target_val and not auto_stopped:
-                print(f"[Auto-Stop] Target reached ({energy_units:.3f} >= {target_val} units). Running evoff.sh...")
-                auto_stopped = True
-
-                # 1. Directly run evoff.sh on the Pi to turn off the relay immediately
-                try:
-                    result = subprocess.run(
-                        ["bash", "/home/wisun/EVCS-Backend/evoff.sh"],
-                        capture_output=True, text=True, timeout=10
-                    )
-                    print(f"[Auto-Stop] evoff.sh stdout: {result.stdout.strip()}")
-                    if result.returncode != 0:
-                        print(f"[Auto-Stop] evoff.sh stderr: {result.stderr.strip()}")
-                except Exception as sh_err:
-                    print(f"[Auto-Stop] Error running evoff.sh: {sh_err}")
-
-                # 2. Notify backend to update the database
-                try:
-                    req = urllib.request.Request(
-                        "http://localhost:3000/api/session/stop-active",
-                        data=b"{}",
-                        headers={"Content-Type": "application/json"},
-                        method="POST"
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        print(f"[Auto-Stop] Backend DB updated: {resp.read().decode()}")
-                except Exception as stop_err:
-                    print(f"[Auto-Stop] Warning: Could not update backend DB: {stop_err}")
-            # --------------------------------------------------------
+            # Send live energy data to backend so it can detect when target is reached
+            try:
+                payload = json.dumps({
+                    "energy_Wh": readings["energy_Wh"]
+                }).encode('utf-8')
+                req = urllib.request.Request(
+                    "http://localhost:3000/api/pzem/update",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                urllib.request.urlopen(req, timeout=2)
+            except Exception:
+                pass  # silently ignore if backend is not reachable
             
             # Update Tkinter safely from this background thread
             app.after(0, app.update_metrics, 
