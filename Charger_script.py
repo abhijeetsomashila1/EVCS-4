@@ -13,6 +13,7 @@ import threading
 import minimalmodbus
 import tkinter as tk
 import os
+import subprocess
 import urllib.request
 import json
 
@@ -202,8 +203,22 @@ def monitor_pzem(app):
             # --- AUTO-STOP: turn off relay when target is reached ---
             energy_units = readings["energy_Wh"] / 1000.0
             if target_val > 0 and energy_units >= target_val and not auto_stopped:
-                print(f"[Auto-Stop] Target reached ({energy_units:.3f} >= {target_val} units). Stopping session...")
+                print(f"[Auto-Stop] Target reached ({energy_units:.3f} >= {target_val} units). Running evoff.sh...")
                 auto_stopped = True
+
+                # 1. Directly run evoff.sh on the Pi to turn off the relay immediately
+                try:
+                    result = subprocess.run(
+                        ["bash", "/home/wisun/EVCS-Backend/evoff.sh"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    print(f"[Auto-Stop] evoff.sh stdout: {result.stdout.strip()}")
+                    if result.returncode != 0:
+                        print(f"[Auto-Stop] evoff.sh stderr: {result.stderr.strip()}")
+                except Exception as sh_err:
+                    print(f"[Auto-Stop] Error running evoff.sh: {sh_err}")
+
+                # 2. Notify backend to update the database
                 try:
                     req = urllib.request.Request(
                         "http://localhost:3000/api/session/stop-active",
@@ -212,9 +227,9 @@ def monitor_pzem(app):
                         method="POST"
                     )
                     with urllib.request.urlopen(req, timeout=5) as resp:
-                        print(f"[Auto-Stop] Backend response: {resp.read().decode()}")
+                        print(f"[Auto-Stop] Backend DB updated: {resp.read().decode()}")
                 except Exception as stop_err:
-                    print(f"[Auto-Stop] Error calling backend: {stop_err}")
+                    print(f"[Auto-Stop] Warning: Could not update backend DB: {stop_err}")
             # --------------------------------------------------------
             
             # Update Tkinter safely from this background thread
