@@ -13,8 +13,6 @@ import threading
 import minimalmodbus
 import tkinter as tk
 import os
-import urllib.request
-import json
 
 PZEM_PORT   = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"
 PZEM_BAUD   = 9600
@@ -144,21 +142,17 @@ class ChargerDashboard(tk.Tk):
     def _quit(self):
         os._exit(0)
 
-WSTK_PORT = '/dev/ttyACM0'
-WSTK_BAUD = 115200
+import socket
+LOCAL_UDP_IP = "127.0.0.1"
+LOCAL_UDP_PORT = 5000
 
 def monitor_pzem(app):
     print("Starting PZEM continuous monitoring...")
     pzem = PZEM()
-    auto_stopped = False  # flag to prevent repeated stop calls
 
-    # Try to connect to the WSTK board over UART
-    wstk_serial = None
-    try:
-        wstk_serial = serial.Serial(WSTK_PORT, WSTK_BAUD, timeout=1)
-        print(f"Connected to WSTK on {WSTK_PORT}")
-    except Exception as e:
-        print(f"Warning: Could not connect to WSTK on {WSTK_PORT}: {e}")
+    # Setup UDP socket for local backend telemetry
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    print(f"Ready to send telemetry to {LOCAL_UDP_IP}:{LOCAL_UDP_PORT}")
 
     while not pzem.isReady():
         print("Waiting for PZEM to connect...")
@@ -179,12 +173,11 @@ def monitor_pzem(app):
                 readings["energy_Wh"]
             )
             
-            # Send the string over UART to the WSTK
-            if wstk_serial is not None and wstk_serial.is_open:
-                try:
-                    wstk_serial.write(pzem_string.encode('utf-8'))
-                except Exception as serial_err:
-                    print(f"UART Write Error: {serial_err}")
+            # Send the string over local UDP to Node.js backend
+            try:
+                sock.sendto(pzem_string.encode('utf-8'), (LOCAL_UDP_IP, LOCAL_UDP_PORT))
+            except Exception as udp_err:
+                print(f"UDP Write Error: {udp_err}")
             
             # Read the target units from the file written by the backend
             try:
@@ -196,21 +189,6 @@ def monitor_pzem(app):
                         app.after(0, lambda: app.target_var.set("--- Units"))
             except Exception:
                 app.after(0, lambda: app.target_var.set("--- Units"))
-
-            # Send live energy data to backend so it can detect when target is reached
-            try:
-                payload = json.dumps({
-                    "energy_Wh": readings["energy_Wh"]
-                }).encode('utf-8')
-                req = urllib.request.Request(
-                    "http://localhost:3000/api/pzem/update",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
-                urllib.request.urlopen(req, timeout=2)
-            except Exception:
-                pass  # silently ignore if backend is not reachable
             
             # Update Tkinter safely from this background thread
             app.after(0, app.update_metrics, 
