@@ -115,7 +115,7 @@ class ChargerDashboard(tk.Tk):
 
         # QR Code Display
         qr_frame = tk.Frame(content, bg="#1a1a2e")
-        qr_frame.pack(side=tk.RIGHT, padx=30, pady=10)
+        qr_frame.pack(side=tk.RIGHT, padx=(0, 10), pady=10)
 
         tk.Label(qr_frame, text="Scan to Charge", bg="#1a1a2e", fg="#aaaacc",
                  font=("Helvetica", 16)).pack(pady=(0, 8))
