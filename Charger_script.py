@@ -120,7 +120,9 @@ class ChargerDashboard(tk.Tk):
         tk.Label(qr_frame, text="Scan to Charge", bg="#1a1a2e", fg="#aaaacc",
                  font=("Helvetica", 16)).pack(pady=(0, 8))
         try:
-            self.qr_image = tk.PhotoImage(file="evqr.png")
+            raw_qr = tk.PhotoImage(file="evqr.png")
+            # subsample(2, 2) halves the image size; increase the number to shrink further
+            self.qr_image = raw_qr.subsample(2, 2)
             tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
         except Exception:
             tk.Label(qr_frame, text="[ evqr.png Missing ]", fg="#666699", bg="#1a1a2e",
