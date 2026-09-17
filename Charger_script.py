@@ -1,10 +1,11 @@
 """
-Charger_script.py  —  EV Charger PZEM-004T Local Monitor
+Charger_script.py  —  EV Charger PZEM-004T Local Monitor & Relay Controller
 ===================================================================
-Continuously monitors the PZEM-004T and displays the real-time 
-metrics on the 7-inch LCD screen using a Tkinter fullscreen GUI.
+Continuously monitors the PZEM-004T and displays real-time metrics 
+on the 7-inch LCD screen using a Tkinter fullscreen GUI.
 
-The relay is controlled externally (e.g. via WSTK board).
+Also directly controls the charger relay via Raspberry Pi GPIO 17 
+based on charging targets written by the backend into /tmp/evcs_target.txt.
 """
 
 import serial
@@ -13,11 +14,72 @@ import threading
 import minimalmodbus
 import tkinter as tk
 import os
+import socket
+import atexit
 
+# =====================================================================
+# GPIO & RELAY CONFIGURATION
+# =====================================================================
+RELAY_PIN = 17
+
+# Set to True for Active-High relay (GPIO HIGH = Relay ON, GPIO LOW = Relay OFF)
+# Set to False for Active-Low relay (GPIO LOW = Relay ON, GPIO HIGH = Relay OFF)
+RELAY_ACTIVE_HIGH = True
+
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+    print("[Warning] RPi.GPIO library not found. Running in simulation mode.")
+
+def init_gpio():
+    """Initializes GPIO 17 as output and ensures relay is OFF on startup."""
+    if GPIO_AVAILABLE:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(RELAY_PIN, GPIO.OUT)
+        off_level = GPIO.LOW if RELAY_ACTIVE_HIGH else GPIO.HIGH
+        GPIO.output(RELAY_PIN, off_level)
+    print(f"[GPIO] Initialized GPIO {RELAY_PIN} as OUTPUT. Relay is initially OFF.")
+
+def set_relay(turn_on: bool):
+    """Sets relay state and logs according to specifications."""
+    if GPIO_AVAILABLE:
+        if RELAY_ACTIVE_HIGH:
+            level = GPIO.HIGH if turn_on else GPIO.LOW
+        else:
+            level = GPIO.LOW if turn_on else GPIO.HIGH
+        GPIO.output(RELAY_PIN, level)
+
+    if turn_on:
+        print(f"Relay ON (GPIO{RELAY_PIN})")
+    else:
+        print(f"Relay OFF (GPIO{RELAY_PIN})")
+
+def cleanup_gpio():
+    """Ensures relay is turned OFF and GPIO pins are cleaned up."""
+    try:
+        set_relay(False)
+        if GPIO_AVAILABLE:
+            GPIO.cleanup()
+        print("[GPIO] Cleanup complete.")
+    except Exception as e:
+        print(f"[GPIO] Cleanup error: {e}")
+
+# Register cleanup on normal program termination
+atexit.register(cleanup_gpio)
+
+# =====================================================================
+# SENSOR & TELEMETRY CONFIGURATION
+# =====================================================================
 PZEM_PORT   = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"
 PZEM_BAUD   = 9600
 PZEM_TIMEOUT = 10.0       # seconds
 READ_INTERVAL  = 1.0      # seconds between PZEM polls
+
+LOCAL_UDP_IP = "127.0.0.1"
+LOCAL_UDP_PORT = 5000
 
 class PZEM:
     def __init__(self, com=PZEM_PORT, timeout=PZEM_TIMEOUT):
@@ -73,6 +135,7 @@ class ChargerDashboard(tk.Tk):
         self.title("EV Charger - Power Monitor")
         self.configure(bg="#1a1a2e")
         self.bind("<Escape>", lambda e: self._quit())
+        self.protocol("WM_DELETE_WINDOW", self._quit)
 
         self.status_var = tk.StringVar(value="STATUS: MONITORING LIVE POWER")
         self.status_lbl = tk.Label(
@@ -110,8 +173,6 @@ class ChargerDashboard(tk.Tk):
         add_metric(metrics_frame, "Voltage",          self.volts_var)
         add_metric(metrics_frame, "Current",          self.amps_var)
         add_metric(metrics_frame, "Power",            self.watts_var)
-        # add_metric(metrics_frame, "Units Delivered",  self.energy_var)
-        # add_metric(metrics_frame, "Target Units",     self.target_var)
 
         # QR Code Display
         qr_frame = tk.Frame(content, bg="#1a1a2e")
@@ -121,7 +182,7 @@ class ChargerDashboard(tk.Tk):
                  font=("Helvetica", 16)).pack(pady=(0, 8))
         try:
             raw_qr = tk.PhotoImage(file="evqr.png")
-            # subsample(2, 2) halves the image size; increase the number to shrink further
+            # subsample(3, 3) shrinks the image to fit cleanly on screen
             self.qr_image = raw_qr.subsample(3, 3)
             tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
         except Exception:
@@ -142,15 +203,15 @@ class ChargerDashboard(tk.Tk):
             self.energy_var.set("%.3f Units" % units)
 
     def _quit(self):
+        cleanup_gpio()
         os._exit(0)
-
-import socket
-LOCAL_UDP_IP = "127.0.0.1"
-LOCAL_UDP_PORT = 5000
 
 def monitor_pzem(app):
     print("Starting PZEM continuous monitoring...")
     pzem = PZEM()
+
+    # Track relay state locally to avoid redundant GPIO writes
+    current_relay_state = False
 
     # Setup UDP socket for local backend telemetry
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -167,7 +228,7 @@ def monitor_pzem(app):
             readings = pzem.readAll()
             print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  Units={readings['energy_Wh']:.1f}")
             
-            # Formulate the string for the WSTK board exactly as requested
+            # Formulate the string for the backend telemetry
             pzem_string = "V:%.1f,A:%.2f,W:%.1f,Wh:%.1f\n" % (
                 readings["voltage_V"],
                 readings["current_A"],
@@ -182,15 +243,29 @@ def monitor_pzem(app):
                 print(f"UDP Write Error: {udp_err}")
             
             # Read the target units from the file written by the backend
+            target_val = 0.0
             try:
                 with open("/tmp/evcs_target.txt", "r") as f:
-                    target_val = float(f.read().strip())
-                    if target_val > 0:
-                        app.after(0, lambda v=target_val: app.target_var.set(f"{v:.1f} Units"))
-                    else:
-                        app.after(0, lambda: app.target_var.set("--- Units"))
+                    content = f.read().strip()
+                    target_val = float(content) if content else 0.0
+
+                if target_val > 0:
+                    app.after(0, lambda v=target_val: app.target_var.set(f"{v:.1f} Units"))
+                else:
+                    app.after(0, lambda: app.target_var.set("--- Units"))
             except Exception:
+                target_val = 0.0
                 app.after(0, lambda: app.target_var.set("--- Units"))
+
+            # Direct Relay Control based on target value
+            if target_val > 0:
+                if not current_relay_state:
+                    set_relay(True)
+                    current_relay_state = True
+            else:
+                if current_relay_state:
+                    set_relay(False)
+                    current_relay_state = False
             
             # Update Tkinter safely from this background thread
             app.after(0, app.update_metrics, 
@@ -205,7 +280,11 @@ def monitor_pzem(app):
         time.sleep(READ_INTERVAL)
 
 if __name__ == "__main__":
-    print("=== EV Charger Display Started ===")
+    print("=== EV Charger Display & Relay Controller Started ===")
+    
+    # Initialize GPIO 17
+    init_gpio()
+
     app = ChargerDashboard()
     
     # Start the background polling thread
@@ -213,4 +292,7 @@ if __name__ == "__main__":
     monitor_thread.start()
     
     # Start the Tkinter UI event loop
-    app.mainloop()
+    try:
+        app.mainloop()
+    finally:
+        cleanup_gpio()
