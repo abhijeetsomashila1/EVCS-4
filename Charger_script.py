@@ -34,39 +34,13 @@ except ImportError:
     print("[Warning] RPi.GPIO library not found. Running in simulation mode.")
 
 def init_gpio():
-    """Initializes GPIO 17 as INPUT (High-Z) so SSR-25DA starts safely OFF."""
-    if GPIO_AVAILABLE:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(RELAY_PIN, GPIO.IN)
-    print(f"[GPIO] Initialized GPIO {RELAY_PIN}. SSR-25DA is initially OFF.")
+    pass
 
 def set_relay(turn_on: bool):
-    """Controls SSR-25DA (Inverted: IN/High-Z=ON, LOW=OFF)."""
-    if GPIO_AVAILABLE:
-        if turn_on:
-            GPIO.setup(RELAY_PIN, GPIO.IN)
-        else:
-            GPIO.setup(RELAY_PIN, GPIO.OUT)
-            GPIO.output(RELAY_PIN, GPIO.LOW)
-
-    if turn_on:
-        print(f"Relay ON (GPIO{RELAY_PIN})")
-    else:
-        print(f"Relay OFF (GPIO{RELAY_PIN})")
+    pass
 
 def cleanup_gpio():
-    """Ensures SSR-25DA is turned OFF and pins are cleaned up."""
-    try:
-        set_relay(False)
-        if GPIO_AVAILABLE:
-            GPIO.cleanup()
-        print("[GPIO] Cleanup complete.")
-    except Exception as e:
-        print(f"[GPIO] Cleanup error: {e}")
-
-# Register cleanup on normal program termination
-atexit.register(cleanup_gpio)
+    pass
 
 # =====================================================================
 # SENSOR & TELEMETRY CONFIGURATION
