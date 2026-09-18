@@ -255,15 +255,8 @@ def monitor_pzem(app):
                 target_val = 0.0
                 app.after(0, lambda: app.target_var.set("--- Units"))
 
-            # Direct Relay Control based on target value
-            if target_val > 0:
-                if not current_relay_state:
-                    set_relay(True)
-                    current_relay_state = True
-            else:
-                if current_relay_state:
-                    set_relay(False)
-                    current_relay_state = False
+            # Relay is now controlled 100% by the Node.js backend (evon.sh/evoff.sh).
+            # We no longer control the relay here to prevent race conditions.
             
             # Update Tkinter safely from this background thread
             app.after(0, app.update_metrics, 
