@@ -42,13 +42,13 @@ def init_gpio():
     print(f"[GPIO] Initialized GPIO {RELAY_PIN}. SSR-25DA is initially OFF.")
 
 def set_relay(turn_on: bool):
-    """Controls SSR-25DA (5V Low-Side: LOW=ON, IN/High-Z=OFF)."""
+    """Controls SSR-25DA (Inverted: IN/High-Z=ON, LOW=OFF)."""
     if GPIO_AVAILABLE:
         if turn_on:
+            GPIO.setup(RELAY_PIN, GPIO.IN)
+        else:
             GPIO.setup(RELAY_PIN, GPIO.OUT)
             GPIO.output(RELAY_PIN, GPIO.LOW)
-        else:
-            GPIO.setup(RELAY_PIN, GPIO.IN)
 
     if turn_on:
         print(f"Relay ON (GPIO{RELAY_PIN})")
