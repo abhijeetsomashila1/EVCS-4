@@ -155,7 +155,7 @@ class ChargerDashboard(tk.Tk):
         try:
             raw_qr = tk.PhotoImage(file="evqr.png")
             # subsample(3, 3) shrinks the image to fit cleanly on screen
-            self.qr_image = raw_qr.subsample(3, 3)
+            self.qr_image = raw_qr.subsample(4, 4)
             tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
         except Exception:
             tk.Label(qr_frame, text="[ evqr.png Missing ]", fg="#666699", bg="#1a1a2e",
