@@ -148,14 +148,14 @@ class ChargerDashboard(tk.Tk):
 
         # QR Code Display
         qr_frame = tk.Frame(content, bg="#1a1a2e")
-        qr_frame.pack(side=tk.RIGHT, padx=(0, 40), pady=10)
+        qr_frame.pack(side=tk.RIGHT, padx=(0, 80), pady=10)
 
         tk.Label(qr_frame, text="Scan to Charge", bg="#1a1a2e", fg="#aaaacc",
                  font=("Helvetica", 16)).pack(pady=(0, 8))
         try:
             raw_qr = tk.PhotoImage(file="evqr.png")
-            # subsample(3, 3) shrinks the image to fit cleanly on screen
-            self.qr_image = raw_qr.subsample(4, 4)
+            # subsample(5, 5) shrinks the image to fit cleanly on screen
+            self.qr_image = raw_qr.subsample(5, 5)
             tk.Label(qr_frame, image=self.qr_image, bg="#1a1a2e").pack()
         except Exception:
             tk.Label(qr_frame, text="[ evqr.png Missing ]", fg="#666699", bg="#1a1a2e",
