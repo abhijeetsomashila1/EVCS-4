@@ -34,23 +34,21 @@ except ImportError:
     print("[Warning] RPi.GPIO library not found. Running in simulation mode.")
 
 def init_gpio():
-    """Initializes GPIO 17 as output and ensures relay is OFF on startup."""
+    """Initializes GPIO 17 as INPUT (High-Z) so SSR-25DA starts safely OFF."""
     if GPIO_AVAILABLE:
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
-        GPIO.setup(RELAY_PIN, GPIO.OUT)
-        off_level = GPIO.LOW if RELAY_ACTIVE_HIGH else GPIO.HIGH
-        GPIO.output(RELAY_PIN, off_level)
-    print(f"[GPIO] Initialized GPIO {RELAY_PIN} as OUTPUT. Relay is initially OFF.")
+        GPIO.setup(RELAY_PIN, GPIO.IN)
+    print(f"[GPIO] Initialized GPIO {RELAY_PIN}. SSR-25DA is initially OFF.")
 
 def set_relay(turn_on: bool):
-    """Sets relay state and logs according to specifications."""
+    """Controls SSR-25DA (5V Low-Side: LOW=ON, IN/High-Z=OFF)."""
     if GPIO_AVAILABLE:
-        if RELAY_ACTIVE_HIGH:
-            level = GPIO.HIGH if turn_on else GPIO.LOW
+        if turn_on:
+            GPIO.setup(RELAY_PIN, GPIO.OUT)
+            GPIO.output(RELAY_PIN, GPIO.LOW)
         else:
-            level = GPIO.LOW if turn_on else GPIO.HIGH
-        GPIO.output(RELAY_PIN, level)
+            GPIO.setup(RELAY_PIN, GPIO.IN)
 
     if turn_on:
         print(f"Relay ON (GPIO{RELAY_PIN})")
@@ -58,7 +56,7 @@ def set_relay(turn_on: bool):
         print(f"Relay OFF (GPIO{RELAY_PIN})")
 
 def cleanup_gpio():
-    """Ensures relay is turned OFF and GPIO pins are cleaned up."""
+    """Ensures SSR-25DA is turned OFF and pins are cleaned up."""
     try:
         set_relay(False)
         if GPIO_AVAILABLE:
