@@ -241,18 +241,24 @@ def send_ev_data_to_fg25(fg25_serial, readings):
     
 def monitor_pzem(app):
     print("Starting PZEM continuous monitoring...")
+
     pzem = PZEM()
 
-    # Track relay state locally to avoid redundant GPIO writes
+    # Track relay state locally
     current_relay_state = False
 
-    # Setup UDP socket for local backend telemetry
+    # Existing local backend UDP
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    print(f"Ready to send telemetry to {LOCAL_UDP_IP}:{LOCAL_UDP_PORT}")
-    
-     # ---------------------------------------------------------------
+
+    print(
+        f"Ready to send telemetry to "
+        f"{LOCAL_UDP_IP}:{LOCAL_UDP_PORT}"
+    )
+
+    # ---------------------------------------------------------------
     # Connect to EFR32FG25 through WSTK USB/VCOM
     # ---------------------------------------------------------------
+
     fg25_serial = serial.Serial(
         port=FG25_PORT,
         baudrate=FG25_BAUD,
@@ -265,10 +271,31 @@ def monitor_pzem(app):
         xonxoff=False
     )
 
-    print(f"FG25 connected on {FG25_PORT}")
+    print("FG25 connected:", FG25_PORT)
 
-    # Timer for 5-second Wi-SUN transmissions
+    # Give FG25 CLI time to become ready
+    time.sleep(3)
+
+    # ---------------------------------------------------------------
+    # Automatically create a new UDP socket
+    # ---------------------------------------------------------------
+
+    try:
+        fg25_socket_id = create_wisun_socket(fg25_serial)
+
+    except Exception as e:
+        print("ERROR creating FG25 UDP socket:", e)
+        fg25_serial.close()
+        return
+
+    print("Using FG25 socket:", fg25_socket_id)
+
+    # Timer for 5-second transmissions
     last_wisun_send = 0.0
+
+    # ---------------------------------------------------------------
+    # Wait for PZEM
+    # ---------------------------------------------------------------
 
     while not pzem.isReady():
         print("Waiting for PZEM to connect...")
@@ -276,70 +303,108 @@ def monitor_pzem(app):
 
     print("PZEM CONNECTED. Monitoring...")
 
+    # ---------------------------------------------------------------
+    # Main monitoring loop
+    # ---------------------------------------------------------------
+
     while True:
         try:
             readings = pzem.readAll()
-            print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  Units={readings['energy_Wh']:.1f}")
-            
-         # -----------------------------------------------------------
-         # Send readings to FG25 every 5 seconds
-         # -----------------------------------------------------------
-         now = time.monotonic()
 
-         if now - last_wisun_send >= WISUN_SEND_INTERVAL:
+            print(
+                f"PZEM: "
+                f"V={readings['voltage_V']:.1f}V  "
+                f"I={readings['current_A']:.2f}A  "
+                f"P={readings['power_W']:.1f}W  "
+                f"Units={readings['energy_Wh']:.1f}"
+            )
 
-            try:
-                send_ev_data_to_fg25(
-                    fg25_serial,
-                    readings
-                )
+            # -------------------------------------------------------
+            # Send EV readings to FG25 every 5 seconds
+            # -------------------------------------------------------
 
-                last_wisun_send = now
+            now = time.monotonic()
 
-            except Exception as e:
-                print(f"FG25 send error: {e}")
-                
-            # Formulate the string for the backend telemetry
+            if now - last_wisun_send >= WISUN_SEND_INTERVAL:
+                try:
+                    send_ev_data_to_fg25(
+                        fg25_serial,
+                        fg25_socket_id,
+                        readings
+                    )
+
+                    last_wisun_send = now
+
+                except Exception as e:
+                    print("FG25 send error:", e)
+
+            # -------------------------------------------------------
+            # Existing local backend telemetry
+            # -------------------------------------------------------
+
             pzem_string = "V:%.1f,A:%.2f,W:%.1f,Wh:%.1f\n" % (
                 readings["voltage_V"],
                 readings["current_A"],
                 readings["power_W"],
                 readings["energy_Wh"]
             )
-            
-            # Send the string over local UDP to Node.js backend
+
             try:
-                sock.sendto(pzem_string.encode('utf-8'), (LOCAL_UDP_IP, LOCAL_UDP_PORT))
+                sock.sendto(
+                    pzem_string.encode("utf-8"),
+                    (LOCAL_UDP_IP, LOCAL_UDP_PORT)
+                )
             except Exception as udp_err:
-                print(f"UDP Write Error: {udp_err}")
-            
-            # Read the target units from the file written by the backend
+                print("UDP Write Error:", udp_err)
+
+            # -------------------------------------------------------
+            # Read target units from backend
+            # -------------------------------------------------------
+
             target_val = 0.0
+
             try:
                 with open("/tmp/evcs_target.txt", "r") as f:
                     content = f.read().strip()
                     target_val = float(content) if content else 0.0
 
                 if target_val > 0:
-                    app.after(0, lambda v=target_val: app.target_var.set(f"{v:.1f} Units"))
+                    app.after(
+                        0,
+                        lambda v=target_val:
+                        app.target_var.set(f"{v:.1f} Units")
+                    )
                 else:
-                    app.after(0, lambda: app.target_var.set("--- Units"))
+                    app.after(
+                        0,
+                        lambda:
+                        app.target_var.set("--- Units")
+                    )
+
             except Exception:
                 target_val = 0.0
-                app.after(0, lambda: app.target_var.set("--- Units"))
 
-            # Relay is now controlled 100% by the Node.js backend (evon.sh/evoff.sh).
-            # We no longer control the relay here to prevent race conditions.
-            
-            # Update Tkinter safely from this background thread
-            app.after(0, app.update_metrics, 
-                      readings['voltage_V'], 
-                      readings['current_A'], 
-                      readings['power_W'], 
-                      readings['energy_Wh'])
+                app.after(
+                    0,
+                    lambda:
+                    app.target_var.set("--- Units")
+                )
+
+            # -------------------------------------------------------
+            # Update Tkinter GUI
+            # -------------------------------------------------------
+
+            app.after(
+                0,
+                app.update_metrics,
+                readings["voltage_V"],
+                readings["current_A"],
+                readings["power_W"],
+                readings["energy_Wh"]
+            )
 
         except Exception as e:
-            print(f"PZEM read error: {e}")
+            print("PZEM read error:", e)
 
         time.sleep(READ_INTERVAL)
 
