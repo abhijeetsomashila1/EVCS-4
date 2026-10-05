@@ -18,7 +18,7 @@ BR_UDP_PORT = 5000
 
 # Replace this with the socket number returned by:
 #     wisun udp_client
-SOCKET_ID = 6
+SOCKET_ID = 11
 
 SEND_INTERVAL = 5
 
