@@ -191,7 +191,7 @@ class ChargerDashboard(tk.Tk):
         cleanup_gpio()
         os._exit(0)
         
-def send_ev_data_to_fg25(fg25_serial, readings):
+def send_ev_data_to_fg25(fg25_serial, socket_id, readings):
     """
     Send EV charger readings to the FG25.
 
@@ -229,7 +229,7 @@ def send_ev_data_to_fg25(fg25_serial, readings):
 
     command = (
         f"wisun socket_write "
-        f"{FG25_SOCKET_ID} "
+        f"{socket_id} "
         f"{BORDER_ROUTER_IPV6} "
         f"{BORDER_ROUTER_UDP_PORT} "
         f"{payload}\r"
