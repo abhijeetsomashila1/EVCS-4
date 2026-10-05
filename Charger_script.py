@@ -56,7 +56,7 @@ LOCAL_UDP_PORT = 5000
 # =====================================================================
 # EFR32FG25 / Wi-SUN CONFIGURATION
 # =====================================================================
-FG25_PORT = "/dev/serial/by-id/usb-Silicon_Labs_J-Link_Pro_OB_A3AE_000440288199-if00"
+FG25_PORT = "/dev/ttyACM0"
 FG25_BAUD = 115200
 
 FG25_SOCKET_ID = 5
