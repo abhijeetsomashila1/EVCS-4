@@ -16,6 +16,7 @@ import tkinter as tk
 import os
 import socket
 import atexit
+import re
 
 # =====================================================================
 # GPIO & RELAY CONFIGURATION
@@ -238,6 +239,79 @@ def send_ev_data_to_fg25(fg25_serial, readings):
     fg25_serial.flush()
 
     print("Wi-SUN TX:", payload)
+
+def create_wisun_socket(fg25_serial, retries=10):
+    """
+    Automatically create a UDP client socket on the FG25.
+
+    Sends:
+        wisun udp_client
+
+    Expects something like:
+        [Socket created: 13]
+
+    Returns:
+        socket ID as an integer
+    """
+
+    socket_pattern = re.compile(
+        rb"\[Socket created:\s*(\d+)\]"
+    )
+
+    for attempt in range(1, retries + 1):
+
+        print(
+            f"Creating FG25 UDP socket "
+            f"(attempt {attempt}/{retries})..."
+        )
+
+        # Clear anything left in the serial receive buffer.
+        fg25_serial.reset_input_buffer()
+
+        # Send the FG25 CLI command.
+        fg25_serial.write(b"wisun udp_client\r")
+        fg25_serial.flush()
+
+        response = b""
+        deadline = time.monotonic() + 5.0
+
+        while time.monotonic() < deadline:
+
+            data = fg25_serial.read(256)
+
+            if data:
+                response += data
+
+                print(
+                    "FG25:",
+                    data.decode(
+                        "utf-8",
+                        errors="replace"
+                    ).rstrip()
+                )
+
+                match = socket_pattern.search(response)
+
+                if match:
+                    socket_id = int(match.group(1))
+
+                    print(
+                        f"FG25 UDP socket created: "
+                        f"{socket_id}"
+                    )
+
+                    return socket_id
+
+        print(
+            "FG25 did not return a socket ID. "
+            "Retrying..."
+        )
+
+        time.sleep(2)
+
+    raise RuntimeError(
+        "Unable to create UDP socket on FG25"
+    )
     
 def monitor_pzem(app):
     print("Starting PZEM continuous monitoring...")
