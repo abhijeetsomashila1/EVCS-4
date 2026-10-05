@@ -281,12 +281,12 @@ def monitor_pzem(app):
             readings = pzem.readAll()
             print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  Units={readings['energy_Wh']:.1f}")
             
-        # -----------------------------------------------------------
-        # Send readings to FG25 every 5 seconds
-        # -----------------------------------------------------------
-        now = time.monotonic()
+         # -----------------------------------------------------------
+         # Send readings to FG25 every 5 seconds
+         # -----------------------------------------------------------
+         now = time.monotonic()
 
-        if now - last_wisun_send >= WISUN_SEND_INTERVAL:
+         if now - last_wisun_send >= WISUN_SEND_INTERVAL:
 
             try:
                 send_ev_data_to_fg25(
