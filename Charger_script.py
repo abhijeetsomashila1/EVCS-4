@@ -53,6 +53,19 @@ READ_INTERVAL  = 1.0      # seconds between PZEM polls
 LOCAL_UDP_IP = "127.0.0.1"
 LOCAL_UDP_PORT = 5000
 
+# =====================================================================
+# EFR32FG25 / Wi-SUN CONFIGURATION
+# =====================================================================
+FG25_PORT = "/dev/serial/by-id/usb-Silicon_Labs_J-Link_Pro_OB_A3AE_000440288199-if00"
+FG25_BAUD = 115200
+
+FG25_SOCKET_ID = 13
+
+BORDER_ROUTER_IPV6 = "fd12:3456::92fd:9fff:feee:9d54"
+BORDER_ROUTER_UDP_PORT = 5000
+
+WISUN_SEND_INTERVAL = 5.0
+
 class PZEM:
     def __init__(self, com=PZEM_PORT, timeout=PZEM_TIMEOUT):
         self.instrument = minimalmodbus.Instrument(com, 1)
@@ -176,7 +189,56 @@ class ChargerDashboard(tk.Tk):
     def _quit(self):
         cleanup_gpio()
         os._exit(0)
+        
+def send_ev_data_to_fg25(fg25_serial, readings):
+    """
+    Send EV charger readings to the FG25.
 
+    Compact JSON is used because the FG25 CLI has a limited
+    command-line length.
+    """
+
+    voltage = float(readings["voltage_V"])
+    current = float(readings["current_A"])
+    power = float(readings["power_W"])
+    energy_kwh = float(readings["energy_Wh"]) / 1000.0
+
+    # Temporary status determination
+    if current > 0.1:
+        status = "CHARGING"
+    else:
+        status = "IDLE"
+
+    # Short JSON field names to keep the CLI command small:
+    # v = voltage
+    # i = current
+    # p = power
+    # e = energy in kWh
+    # s = status
+    payload = (
+        '{"v":%.1f,"i":%.2f,"p":%.1f,"e":%.3f,"s":"%s"}'
+        % (
+            voltage,
+            current,
+            power,
+            energy_kwh,
+            status
+        )
+    )
+
+    command = (
+        f"wisun socket_write "
+        f"{FG25_SOCKET_ID} "
+        f"{BORDER_ROUTER_IPV6} "
+        f"{BORDER_ROUTER_UDP_PORT} "
+        f"{payload}\r"
+    )
+
+    fg25_serial.write(command.encode("utf-8"))
+    fg25_serial.flush()
+
+    print("Wi-SUN TX:", payload)
+    
 def monitor_pzem(app):
     print("Starting PZEM continuous monitoring...")
     pzem = PZEM()
@@ -187,6 +249,26 @@ def monitor_pzem(app):
     # Setup UDP socket for local backend telemetry
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     print(f"Ready to send telemetry to {LOCAL_UDP_IP}:{LOCAL_UDP_PORT}")
+    
+     # ---------------------------------------------------------------
+    # Connect to EFR32FG25 through WSTK USB/VCOM
+    # ---------------------------------------------------------------
+    fg25_serial = serial.Serial(
+        port=FG25_PORT,
+        baudrate=FG25_BAUD,
+        bytesize=serial.EIGHTBITS,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE,
+        timeout=0.2,
+        rtscts=False,
+        dsrdtr=False,
+        xonxoff=False
+    )
+
+    print(f"FG25 connected on {FG25_PORT}")
+
+    # Timer for 5-second Wi-SUN transmissions
+    last_wisun_send = 0.0
 
     while not pzem.isReady():
         print("Waiting for PZEM to connect...")
@@ -199,6 +281,24 @@ def monitor_pzem(app):
             readings = pzem.readAll()
             print(f"PZEM: V={readings['voltage_V']:.1f}V  I={readings['current_A']:.2f}A  P={readings['power_W']:.1f}W  Units={readings['energy_Wh']:.1f}")
             
+        # -----------------------------------------------------------
+        # Send readings to FG25 every 5 seconds
+        # -----------------------------------------------------------
+        now = time.monotonic()
+
+        if now - last_wisun_send >= WISUN_SEND_INTERVAL:
+
+            try:
+                send_ev_data_to_fg25(
+                    fg25_serial,
+                    readings
+                )
+
+                last_wisun_send = now
+
+            except Exception as e:
+                print(f"FG25 send error: {e}")
+                
             # Formulate the string for the backend telemetry
             pzem_string = "V:%.1f,A:%.2f,W:%.1f,Wh:%.1f\n" % (
                 readings["voltage_V"],
