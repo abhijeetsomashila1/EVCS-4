@@ -16,7 +16,7 @@ BAUDRATE = 115200
 BR_IPV6 = "fd12:3456::92fd:9fff:feee:9d54"
 BR_UDP_PORT = 5000
 
-# Replace this with the socket number returned by:
+# Socket created on FG25 using:
 #     wisun udp_client
 SOCKET_ID = 13
 
@@ -40,29 +40,37 @@ ser = serial.Serial(
 
 print("Connected to FG25:", SERIAL_PORT)
 
-
 # --------------------------------------------------------------------
-# Replace this function with your actual EV charger readings
+# EV charger readings
+#
+# Short JSON fields:
+# v = voltage (V)
+# i = current (A)
+# p = power (kW)
+# e = energy (kWh)
+# s = status
+#
+# Status:
+# 0 = IDLE
+# 1 = CHARGING
+# 2 = FAULT
+# 3 = DONE
 # --------------------------------------------------------------------
 
 def get_ev_readings():
-    """
-    Replace these example values with the values calculated/read
-    by your existing EV charger software.
-    """
 
-    energy_kwh = 12.48
-    power_kw = 7.21
-    current_a = 31.4
     voltage_v = 229.6
-    status = "CHARGING"
+    current_a = 31.4
+    power_kw = 7.21
+    energy_kwh = 12.48
+    status = 1
 
     return {
-        "energy_kwh": energy_kwh,
-        "power_kw": power_kw,
-        "current_a": current_a,
-        "voltage_v": voltage_v,
-        "status": status,
+        "v": voltage_v,
+        "i": current_a,
+        "p": power_kw,
+        "e": energy_kwh,
+        "s": status,
     }
 
 
@@ -76,7 +84,7 @@ try:
 
         readings = get_ev_readings()
 
-        # Compact JSON: no spaces/newlines
+        # Compact JSON
         payload = json.dumps(
             readings,
             separators=(",", ":")
@@ -91,8 +99,7 @@ try:
             f"{payload}\r"
         )
 
-        print("Sending:")
-        print(payload)
+        print("Sending:", payload)
 
         ser.write(command.encode("utf-8"))
         ser.flush()
