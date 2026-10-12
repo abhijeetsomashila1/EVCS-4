@@ -123,13 +123,18 @@ class ChargerDashboard(tk.Tk):
         self.bind("<Escape>", lambda e: self._quit())
         self.protocol("WM_DELETE_WINDOW", self._quit)
 
-        self.status_var = tk.StringVar(value="STATUS: MONITORING LIVE POWER")
+        self.status_var = tk.StringVar(value="STATUS: CONNECTING TO PZEM...")
         self.status_lbl = tk.Label(
             self, textvariable=self.status_var,
-            bg="#1a1a2e", fg="#00e676",
+            bg="#1a1a2e", fg="#ffab00",
             font=("Helvetica", 30, "bold"), pady=18
         )
         self.status_lbl.pack(fill=tk.X)
+
+    def set_status(self, text, color=None):
+        self.status_var.set(text)
+        if color:
+            self.status_lbl.configure(fg=color)
 
         tk.Frame(self, bg="#333366", height=2).pack(fill=tk.X)
 
@@ -330,39 +335,37 @@ def monitor_pzem(app):
     )
 
     # ---------------------------------------------------------------
-    # Connect to EFR32FG25 through WSTK USB/VCOM
+    # Connect to EFR32FG25 through WSTK USB/VCOM (Optional)
     # ---------------------------------------------------------------
 
-    fg25_serial = serial.Serial(
-        port=FG25_PORT,
-        baudrate=FG25_BAUD,
-        bytesize=serial.EIGHTBITS,
-        parity=serial.PARITY_NONE,
-        stopbits=serial.STOPBITS_ONE,
-        timeout=0.2,
-        rtscts=False,
-        dsrdtr=False,
-        xonxoff=False
-    )
-
-    print("FG25 connected:", FG25_PORT)
-
-    # Give FG25 CLI time to become ready
-    time.sleep(3)
-
-    # ---------------------------------------------------------------
-    # Automatically create a new UDP socket
-    # ---------------------------------------------------------------
+    fg25_serial = None
+    fg25_socket_id = None
 
     try:
+        fg25_serial = serial.Serial(
+            port=FG25_PORT,
+            baudrate=FG25_BAUD,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=0.2,
+            rtscts=False,
+            dsrdtr=False,
+            xonxoff=False
+        )
+        print("FG25 connected:", FG25_PORT)
+        time.sleep(2)
         fg25_socket_id = create_wisun_socket(fg25_serial)
-
+        print("Using FG25 socket:", fg25_socket_id)
     except Exception as e:
-        print("ERROR creating FG25 UDP socket:", e)
-        fg25_serial.close()
-        return
-
-    print("Using FG25 socket:", fg25_socket_id)
+        print(f"[Notice] Wi-SUN FG25 not available ({e}). Running in standalone display mode.")
+        if fg25_serial and fg25_serial.is_open:
+            try:
+                fg25_serial.close()
+            except Exception:
+                pass
+        fg25_serial = None
+        fg25_socket_id = None
 
     # Timer for 5-second transmissions
     last_wisun_send = 0.0
@@ -373,9 +376,11 @@ def monitor_pzem(app):
 
     while not pzem.isReady():
         print("Waiting for PZEM to connect...")
+        app.after(0, app.set_status, "STATUS: WAITING FOR PZEM...", "#ffab00")
         time.sleep(2)
 
     print("PZEM CONNECTED. Monitoring...")
+    app.after(0, app.set_status, "STATUS: MONITORING LIVE POWER", "#00e676")
 
     # ---------------------------------------------------------------
     # Main monitoring loop
@@ -394,21 +399,19 @@ def monitor_pzem(app):
             )
 
             # -------------------------------------------------------
-            # Send EV readings to FG25 every 5 seconds
+            # Send EV readings to FG25 every 5 seconds (if connected)
             # -------------------------------------------------------
 
             now = time.monotonic()
 
-            if now - last_wisun_send >= WISUN_SEND_INTERVAL:
+            if fg25_serial and fg25_socket_id is not None and (now - last_wisun_send >= WISUN_SEND_INTERVAL):
                 try:
                     send_ev_data_to_fg25(
                         fg25_serial,
                         fg25_socket_id,
                         readings
                     )
-
                     last_wisun_send = now
-
                 except Exception as e:
                     print("FG25 send error:", e)
 
@@ -468,6 +471,11 @@ def monitor_pzem(app):
             # Update Tkinter GUI
             # -------------------------------------------------------
 
+            if readings["current_A"] > 0.1:
+                app.after(0, app.set_status, "STATUS: CHARGING IN PROGRESS", "#00e676")
+            else:
+                app.after(0, app.set_status, "STATUS: MONITORING LIVE POWER", "#00e676")
+
             app.after(
                 0,
                 app.update_metrics,
@@ -479,6 +487,7 @@ def monitor_pzem(app):
 
         except Exception as e:
             print("PZEM read error:", e)
+            app.after(0, app.set_status, "STATUS: SENSOR READ ERROR", "#ff5252")
 
         time.sleep(READ_INTERVAL)
 
