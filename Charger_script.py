@@ -131,11 +131,6 @@ class ChargerDashboard(tk.Tk):
         )
         self.status_lbl.pack(fill=tk.X)
 
-    def set_status(self, text, color=None):
-        self.status_var.set(text)
-        if color:
-            self.status_lbl.configure(fg=color)
-
         tk.Frame(self, bg="#333366", height=2).pack(fill=tk.X)
 
         content = tk.Frame(self, bg="#1a1a2e")
@@ -182,6 +177,11 @@ class ChargerDashboard(tk.Tk):
         tk.Frame(self, bg="#333366", height=2).pack(fill=tk.X)
         tk.Label(self, text="EV Charger  |  SCRC, IIIT Hyderabad",
                  bg="#1a1a2e", fg="#555577", font=("Helvetica", 12)).pack(pady=8)
+
+    def set_status(self, text, color=None):
+        self.status_var.set(text)
+        if color:
+            self.status_lbl.configure(fg=color)
 
     def update_metrics(self, voltage=None, current=None, power=None, energy=None):
         if voltage  is not None: self.volts_var.set("%.1f V" % voltage)
