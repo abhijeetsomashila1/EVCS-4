@@ -196,54 +196,33 @@ class ChargerDashboard(tk.Tk):
         cleanup_gpio()
         os._exit(0)
         
-def send_ev_data_to_fg25(fg25_serial, socket_id, readings):
-    """
-    Send EV charger readings to the FG25.
-
-    Compact JSON is used because the FG25 CLI has a limited
-    command-line length.
-    """
+def send_ev_data_to_fg25(fg25_serial, readings):
+    """Send current PZEM readings to the FG25 CLI."""
 
     voltage = float(readings["voltage_V"])
     current = float(readings["current_A"])
     power = float(readings["power_W"])
     energy_kwh = float(readings["energy_Wh"]) / 1000.0
 
-    # Temporary status determination
-    if current > 0.1:
-        status = "CHARGING"
-    else:
-        status = "IDLE"
-
-    # Short JSON field names to keep the CLI command small:
-    # v = voltage
-    # i = current
-    # p = power
-    # e = energy in kWh
-    # s = status
-    payload = (
-        '{"v":%.1f,"i":%.2f,"p":%.1f,"e":%.3f,"s":"%s"}'
-        % (
-            voltage,
-            current,
-            power,
-            energy_kwh,
-            status
-        )
-    )
+    # Temporary status mapping:
+    # 0 = IDLE, 1 = CHARGING
+    status = 1 if current > 0.1 else 0
 
     command = (
-        f"wisun socket_write "
-        f"{socket_id} "
-        f"{BORDER_ROUTER_IPV6} "
-        f"{BORDER_ROUTER_UDP_PORT} "
-        f"{payload}\r"
+        f"ev_update {voltage:.1f} "
+        f"{current:.2f} "
+        f"{power:.1f} "
+        f"{energy_kwh:.3f} "
+        f"{status}\r\n"
     )
 
-    fg25_serial.write(command.encode("utf-8"))
+    fg25_serial.write(command.encode("ascii"))
     fg25_serial.flush()
 
-    print("Wi-SUN TX:", payload)
+    print(
+        "FG25 CLI TX:",
+        command.strip()
+    )
 
 def create_wisun_socket(fg25_serial, retries=10):
     """
@@ -341,31 +320,31 @@ def monitor_pzem(app):
     fg25_serial = None
     fg25_socket_id = None
 
-    try:
-        fg25_serial = serial.Serial(
-            port=FG25_PORT,
-            baudrate=FG25_BAUD,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=0.2,
-            rtscts=False,
-            dsrdtr=False,
-            xonxoff=False
-        )
-        print("FG25 connected:", FG25_PORT)
-        time.sleep(2)
-        fg25_socket_id = create_wisun_socket(fg25_serial)
-        print("Using FG25 socket:", fg25_socket_id)
-    except Exception as e:
-        print(f"[Notice] Wi-SUN FG25 not available ({e}). Running in standalone display mode.")
-        if fg25_serial and fg25_serial.is_open:
-            try:
-                fg25_serial.close()
-            except Exception:
-                pass
-        fg25_serial = None
-        fg25_socket_id = None
+    # try:
+    #     fg25_serial = serial.Serial(
+    #         port=FG25_PORT,
+    #         baudrate=FG25_BAUD,
+    #         bytesize=serial.EIGHTBITS,
+    #         parity=serial.PARITY_NONE,
+    #         stopbits=serial.STOPBITS_ONE,
+    #         timeout=0.2,
+    #         rtscts=False,
+    #         dsrdtr=False,
+    #         xonxoff=False
+    #     )
+    #     print("FG25 connected:", FG25_PORT)
+    #     time.sleep(2)
+    #     fg25_socket_id = create_wisun_socket(fg25_serial)
+    #     print("Using FG25 socket:", fg25_socket_id)
+    # except Exception as e:
+    #     print(f"[Notice] Wi-SUN FG25 not available ({e}). Running in standalone display mode.")
+    #     if fg25_serial and fg25_serial.is_open:
+    #         try:
+    #             fg25_serial.close()
+    #         except Exception:
+    #             pass
+    #     fg25_serial = None
+    #     fg25_socket_id = None
 
     # Timer for 5-second transmissions
     last_wisun_send = 0.0
@@ -408,7 +387,6 @@ def monitor_pzem(app):
                 try:
                     send_ev_data_to_fg25(
                         fg25_serial,
-                        fg25_socket_id,
                         readings
                     )
                     last_wisun_send = now
