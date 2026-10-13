@@ -386,7 +386,11 @@ def monitor_pzem(app):
 
             now = time.monotonic()
 
-            if fg25_serial and fg25_socket_id is not None and (now - last_wisun_send >= WISUN_SEND_INTERVAL):
+            if (
+                fg25_serial is not None
+                and fg25_serial.is_open
+                and (now - last_wisun_send >= WISUN_SEND_INTERVAL)
+            ):
                 try:
                     send_ev_data_to_fg25(
                         fg25_serial,
