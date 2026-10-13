@@ -218,10 +218,20 @@ def send_ev_data_to_fg25(fg25_serial, readings):
 
     fg25_serial.write(command.encode("ascii"))
     fg25_serial.flush()
+    time.sleep(0.3)
 
+    rx_count = fg25_serial.in_waiting
+    if rx_count > 0:
+         response = fg25_serial.read(rx_count)
+         print(
+            "FG25 CLI RX:",
+          response.decode("utf-8", errors="replace")
+       )
+    else:
+        print("FG25 CLI RX: <no response received>")
     print(
-        "FG25 CLI TX:",
-        command.strip()
+     "FG25 CLI TX:",
+      command.strip()
     )
 
 def create_wisun_socket(fg25_serial, retries=10):
