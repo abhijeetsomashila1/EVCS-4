@@ -328,33 +328,26 @@ def monitor_pzem(app):
     # ---------------------------------------------------------------
 
     fg25_serial = None
-    fg25_socket_id = None
 
-    # try:
-    #     fg25_serial = serial.Serial(
-    #         port=FG25_PORT,
-    #         baudrate=FG25_BAUD,
-    #         bytesize=serial.EIGHTBITS,
-    #         parity=serial.PARITY_NONE,
-    #         stopbits=serial.STOPBITS_ONE,
-    #         timeout=0.2,
-    #         rtscts=False,
-    #         dsrdtr=False,
-    #         xonxoff=False
-    #     )
-    #     print("FG25 connected:", FG25_PORT)
-    #     time.sleep(2)
-    #     fg25_socket_id = create_wisun_socket(fg25_serial)
-    #     print("Using FG25 socket:", fg25_socket_id)
-    # except Exception as e:
-    #     print(f"[Notice] Wi-SUN FG25 not available ({e}). Running in standalone display mode.")
-    #     if fg25_serial and fg25_serial.is_open:
-    #         try:
-    #             fg25_serial.close()
-    #         except Exception:
-    #             pass
-    #     fg25_serial = None
-    #     fg25_socket_id = None
+    try:
+        fg25_serial = serial.Serial(
+            port=FG25_PORT,
+            baudrate=FG25_BAUD,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=0.2,
+            rtscts=False,
+            dsrdtr=False,
+            xonxoff=False
+        )
+
+        print("FG25 connected:", FG25_PORT)
+        time.sleep(2)
+
+    except Exception as e:
+        print(f"[Notice] FG25 serial not available: {e}")
+        fg25_serial = None
 
     # Timer for 5-second transmissions
     last_wisun_send = 0.0
