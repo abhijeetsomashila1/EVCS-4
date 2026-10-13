@@ -2,153 +2,186 @@
 
 import asyncio
 import json
-import math
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 
 import aiocoap
 import aiocoap.resource as resource
-from aiocoap.numbers.contentformat import ContentFormat
+import requests
+
+# ctOP API configuration
+CTOP_API_URL = "https://dev-ctop.iiit.ac.in/api/nodes/create-cin/63"
+CTOP_API_TOKEN = os.environ.get("CTOP_API_TOKEN", "").strip()
+CTOP_TIMEOUT_SECONDS = 10
+
+# Store the latest telemetry in memory
+latest_telemetry = None
+
+# JSON content format
+JSON_CONTENT_FORMAT = 50
 
 
-# CoAP application/json has content-format number 50.
-JSON_FORMAT = ContentFormat(50)
-
-# Shared storage for the most recently accepted EV sample.
-state = {
-    "payload": None,
-    "received_at": None,
-}
+def timestamp_now():
+    return datetime.now(timezone.utc).astimezone().isoformat(
+        timespec="seconds"
+    )
 
 
-def validate_ev_data(data):
-    """Validate the expected EV telemetry fields."""
-
-    if not isinstance(data, dict):
-        raise ValueError("JSON payload must be an object")
-
+def validate_telemetry(data):
     required = ("v", "i", "p", "e", "s")
 
-    for key in required:
-        if key not in data:
-            raise ValueError(f"Missing field: {key}")
+    missing = [key for key in required if key not in data]
+    if missing:
+        raise ValueError(
+            "Missing required fields: " + ", ".join(missing)
+        )
 
-    # Voltage, current, power and energy must be finite,
-    # non-negative numbers (boolean values are not accepted).
-    for key in ("v", "i", "p", "e"):
-        value = data[key]
+    try:
+        voltage = float(data["v"])
+        current = float(data["i"])
+        power = float(data["p"])
+        energy_kwh = float(data["e"])
+        status = int(data["s"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid telemetry values") from exc
 
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value < 0
-        ):
-            raise ValueError(f"Invalid numeric field: {key}")
+    if status not in (0, 1, 2, 3):
+        raise ValueError("Status must be between 0 and 3")
 
-    status = data["s"]
-
-    if (
-        isinstance(status, bool)
-        or not isinstance(status, int)
-        or status not in (0, 1, 2, 3)
-    ):
-        raise ValueError("Status must be an integer from 0 to 3")
-
-    # Return only the agreed fields.
     return {
-        "v": data["v"],
-        "i": data["i"],
-        "p": data["p"],
-        "e": data["e"],
+        "v": voltage,
+        "i": current,
+        "p": power,
+        "e": energy_kwh,
         "s": status,
     }
 
 
+def forward_to_ctop(telemetry):
+    """Forward telemetry to the ctOP HTTPS API."""
+
+    if not CTOP_API_TOKEN:
+        print(
+            "ctOP forwarding skipped: "
+            "CTOP_API_TOKEN is not configured."
+        )
+        return False
+
+    # Map the received fields to ctOP API fields.
+    api_data = {
+        "voltage": telemetry["v"],
+        "current": telemetry["i"],
+        "power": telemetry["p"],
+        "units": telemetry["e"],
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {CTOP_API_TOKEN}",
+    }
+
+    try:
+        response = requests.post(
+            CTOP_API_URL,
+            json=api_data,
+            headers=headers,
+            timeout=CTOP_TIMEOUT_SECONDS,
+        )
+
+        if 200 <= response.status_code < 300:
+            print(
+                f"ctOP API SUCCESS: HTTP {response.status_code}"
+            )
+            print("Response:", response.text)
+            return True
+
+        print(f"ctOP API ERROR: HTTP {response.status_code}")
+        print("Response:", response.text)
+        return False
+
+    except requests.RequestException as exc:
+        print("ctOP API request failed:", exc)
+        return False
+
+
 class EVTelemetryResource(resource.Resource):
-    """POST new readings and GET the latest reading."""
 
     async def render_post(self, request):
+        global latest_telemetry
+
         try:
-            data = json.loads(request.payload.decode("utf-8"))
-            data = validate_ev_data(data)
+            incoming = json.loads(
+                request.payload.decode("utf-8")
+            )
+            telemetry = validate_telemetry(incoming)
 
-            payload = json.dumps(
-                data,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-            print(f"Rejected POST: {exc}", flush=True)
-
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValueError,
+        ) as exc:
             return aiocoap.Message(
                 code=aiocoap.BAD_REQUEST,
-                payload=str(exc).encode("utf-8"),
-                content_format=ContentFormat.TEXT,
+                payload=json.dumps({
+                    "error": str(exc)
+                }).encode("utf-8"),
+                content_format=JSON_CONTENT_FORMAT,
             )
 
-        state["payload"] = payload
-        state["received_at"] = datetime.now().astimezone().isoformat(
-            timespec="seconds"
-        )
+        received_at = timestamp_now()
+
+        latest_telemetry = {
+            "data": telemetry,
+            "received_at": received_at,
+        }
 
         print(
-            f"[{state['received_at']}] EV telemetry accepted: "
-            f"{payload.decode('utf-8')}",
-            flush=True,
+            f"[{received_at}] EV telemetry received: "
+            f"{json.dumps(telemetry)}"
         )
+
+        # Forward the received data to ctOP.
+        api_ok = await asyncio.to_thread(
+            forward_to_ctop, telemetry
+        )
+
+        if api_ok:
+            result = {
+                "message":
+                    "EV telemetry accepted and forwarded to ctOP"
+            }
+        else:
+            result = {
+                "message":
+                    "Telemetry stored locally, but ctOP forwarding failed or was skipped"
+            }
 
         return aiocoap.Message(
             code=aiocoap.CHANGED,
-            payload=b"EV telemetry accepted",
-            content_format=ContentFormat.TEXT,
-        )
-
-    async def render_get(self, request):
-        if state["payload"] is None:
-            return aiocoap.Message(
-                code=aiocoap.SERVICE_UNAVAILABLE,
-                payload=b"No EV telemetry received yet",
-                content_format=ContentFormat.TEXT,
-            )
-
-        return aiocoap.Message(
-            code=aiocoap.CONTENT,
-            payload=state["payload"],
-            content_format=JSON_FORMAT,
+            payload=json.dumps(result).encode("utf-8"),
+            content_format=JSON_CONTENT_FORMAT,
         )
 
 
-class LatestEVResource(resource.Resource):
-    """Read-only endpoint for retrieving the latest sample."""
+class LatestTelemetryResource(resource.Resource):
 
     async def render_get(self, request):
-        if state["payload"] is None:
-            return aiocoap.Message(
-                code=aiocoap.SERVICE_UNAVAILABLE,
-                payload=b"No EV telemetry received yet",
-                content_format=ContentFormat.TEXT,
-            )
-
-        result = {
-            "data": json.loads(state["payload"].decode("utf-8")),
-            "received_at": state["received_at"],
-        }
+        if latest_telemetry is None:
+            payload = {
+                "message": "No EV telemetry received yet"
+            }
+        else:
+            payload = latest_telemetry
 
         return aiocoap.Message(
             code=aiocoap.CONTENT,
-            payload=json.dumps(result, separators=(",", ":")).encode("utf-8"),
-            content_format=JSON_FORMAT,
+            payload=json.dumps(payload).encode("utf-8"),
+            content_format=JSON_CONTENT_FORMAT,
         )
 
 
 async def main():
     site = resource.Site()
-
-    site.add_resource(
-        [".well-known", "core"],
-        resource.WKCResource(site.get_resources_as_linkheader),
-    )
 
     site.add_resource(
         ["telemetry", "ev"],
@@ -157,25 +190,31 @@ async def main():
 
     site.add_resource(
         ["telemetry", "ev", "latest"],
-        LatestEVResource(),
+        LatestTelemetryResource(),
     )
 
-    # Listen for CoAP requests on IPv6 port 5683.
-    await aiocoap.Context.create_server_context(
+    protocol = await aiocoap.Context.create_server_context(
         site,
         bind=("::", 5683),
     )
 
-    print("EV CoAP receiver started", flush=True)
-    print("Listening on IPv6 UDP port 5683", flush=True)
-    print("POST /telemetry/ev", flush=True)
-    print("GET  /telemetry/ev/latest", flush=True)
+    print("EV CoAP server listening on UDP port 5683")
+    print("POST endpoint: /telemetry/ev")
+    print("GET endpoint: /telemetry/ev/latest")
 
-    await asyncio.get_running_loop().create_future()
+    if CTOP_API_TOKEN:
+        print("ctOP forwarding is enabled")
+    else:
+        print(
+            "WARNING: CTOP_API_TOKEN is not set; "
+            "ctOP forwarding is disabled"
+        )
+
+    try:
+        await asyncio.get_running_loop().create_future()
+    finally:
+        await protocol.shutdown()
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nEV CoAP receiver stopped", flush=True)
+    asyncio.run(main())
